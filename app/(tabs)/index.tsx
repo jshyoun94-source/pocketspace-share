@@ -1,4 +1,3 @@
-// app/(tabs)/index.tsx
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
@@ -13,13 +12,10 @@ import {
   View,
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
+import { Ionicons } from "@expo/vector-icons";
 import { db } from "../../firebase";
-
-// ✅ 자동완성(구글)
 import AddressPicker from "../../components/AddressPicker";
-
-// ✅ 아이콘
-import { FontAwesome5, Ionicons } from "@expo/vector-icons";
+import SideMenu from "../../components/SideMenu";
 
 type Space = {
   id: string;
@@ -45,30 +41,19 @@ export default function HomeMap() {
     longitudeDelta: 0.03,
   });
 
-  // 자동완성에서 고른 지점(임시 마커)
-  const [picked, setPicked] = useState<{
-    lat: number;
-    lng: number;
-    name?: string;
-    formatted?: string;
-  } | null>(null);
-
-  // 필터
+  const [picked, setPicked] = useState<{ lat: number; lng: number; name?: string; formatted?: string } | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [when, setWhen] = useState<"지금" | "오늘" | "내일">("지금");
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  // 배너
   const banner = useMemo(
     () => ({
-      image:
-        "https://dummyimage.com/1400x180/EEF3FF/2477FF&text=%EA%B4%91%EA%B3%A0+%EB%B0%B0%EB%84%88",
+      image: "https://dummyimage.com/1400x180/EEF3FF/2477FF&text=%EB%B0%B0%EB%84%88",
       link: "https://example.com",
     }),
     []
   );
 
-  // 현위치
   useEffect(() => {
     (async () => {
       try {
@@ -86,7 +71,6 @@ export default function HomeMap() {
     })();
   }, []);
 
-  // Firestore + Local
   const loadSpaces = useCallback(async () => {
     setLoading(true);
     try {
@@ -135,57 +119,36 @@ export default function HomeMap() {
   useEffect(() => {
     loadSpaces();
   }, [loadSpaces]);
+
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
       loadSpaces();
     }, [loadSpaces])
   );
 
-  // 필터 적용 후 목록
-  const filtered = useMemo(() => {
-    return spaces.filter((s) => {
-      if (selectedTags.length > 0) {
-        const ok = selectedTags.every((t) => s.tags.includes(t));
-        if (!ok) return false;
-      }
-      return true;
-    });
-  }, [spaces, selectedTags]);
+  const filtered = useMemo(
+    () =>
+      spaces.filter((s) => {
+        if (selectedTags.length > 0) {
+          const ok = selectedTags.every((t) => s.tags.includes(t));
+          if (!ok) return false;
+        }
+        return true;
+      }),
+    [spaces, selectedTags]
+  );
 
-  const goRegister = () => router.push("/space/new");
   const goDetail = (id: string) => router.push(`/space/${id}`);
-
-  const moveTo = (lat: number, lng: number, delta = 0.012) =>
+  const moveTo = (lat: number, lng: number) =>
     mapRef.current?.animateToRegion(
-      { latitude: lat, longitude: lng, latitudeDelta: delta, longitudeDelta: delta },
+      { latitude: lat, longitude: lng, latitudeDelta: 0.012, longitudeDelta: 0.012 },
       350
     );
 
-  // 확대/축소/현위치
-  const zoom = (factor: number) => {
-    setRegion((r) => {
-      const next: Region = {
-        ...r,
-        latitudeDelta: Math.max(0.002, r.latitudeDelta * factor),
-        longitudeDelta: Math.max(0.002, r.longitudeDelta * factor),
-      };
-      mapRef.current?.animateToRegion(next, 200);
-      return next;
-    });
-  };
-  const goMyLocation = async () => {
-    try {
-      const loc = await Location.getCurrentPositionAsync({});
-      moveTo(loc.coords.latitude, loc.coords.longitude, 0.01);
-    } catch {}
-  };
-
   return (
     <View style={{ flex: 1 }}>
-      {/* ✅ 이 화면만 헤더 숨김 → 상단 'index' 제거 + 지도 꽉 채움 */}
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* 🗺 지도 */}
       <MapView
         ref={mapRef}
         style={{ flex: 1 }}
@@ -207,19 +170,16 @@ export default function HomeMap() {
                 paddingHorizontal: 8,
                 paddingVertical: 6,
                 borderRadius: 8,
-                minWidth: 54,
-                alignItems: "center",
                 borderWidth: 2,
                 borderColor: "#fff",
               }}
             >
-              <Text style={{ color: "white", fontWeight: "bold" }}>
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>
                 {s.pricePerHour.toLocaleString()}원
               </Text>
             </View>
           </Marker>
         ))}
-
         {picked && (
           <Marker
             coordinate={{ latitude: picked.lat, longitude: picked.lng }}
@@ -229,7 +189,7 @@ export default function HomeMap() {
         )}
       </MapView>
 
-      {/* 🔍 검색 + 필터 → 하나의 흰 박스 */}
+      {/* 상단 검색 */}
       <View
         style={{
           position: "absolute",
@@ -254,16 +214,17 @@ export default function HomeMap() {
             height: 56,
           }}
         >
-          {/* 메뉴 */}
-          <Pressable onPress={() => {}} hitSlop={10} style={{ padding: 6 }}>
+          <Pressable onPress={() => setMenuOpen(true)} style={{ padding: 6 }}>
             <Ionicons name="menu" size={20} color="#333" />
           </Pressable>
-
-          {/* AddressPicker 영역 */}
-          <View style={{ flex: 1, paddingHorizontal: 8 }}>
+          <View style={{ flex: 1, marginHorizontal: 8 }}>
             <AddressPicker
               placeholder="목적지 또는 주소 검색"
-              coordsBias={{ lat: region.latitude, lng: region.longitude, radius: 30000 }}
+              coordsBias={{
+                lat: region.latitude,
+                lng: region.longitude,
+                radius: 30000,
+              }}
               onPicked={(p) => {
                 if (p.lat && p.lng) {
                   setPicked({
@@ -277,147 +238,129 @@ export default function HomeMap() {
               }}
             />
           </View>
-
-          {/* 마이크 */}
-          <Pressable onPress={() => {}} hitSlop={10} style={{ padding: 6 }}>
-            <Ionicons name="mic-outline" size={18} color="#333" />
+          <Pressable style={{ padding: 6 }}>
+            <Ionicons name="mic-outline" size={20} color="#333" />
           </Pressable>
-
-          {/* 구분선 */}
-          <View style={{ width: 1, height: 24, backgroundColor: "#E5E7EB", marginHorizontal: 8 }} />
-
-          {/* 필터 버튼(같은 박스 내부) */}
           <Pressable
             onPress={() => setFilterOpen(true)}
             style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 4,
-              paddingHorizontal: 10,
-              paddingVertical: 8,
+              marginLeft: 8,
+              backgroundColor: "#2477ff",
+              paddingHorizontal: 12,
+              height: 36,
               borderRadius: 10,
-              backgroundColor: "#F8FAFF",
+              justifyContent: "center",
+              alignItems: "center",
             }}
           >
-            <Ionicons name="filter-outline" size={18} color="#2477ff" />
-            <Text style={{ color: "#2477ff", fontWeight: "700" }}>필터</Text>
+            <Text style={{ color: "#fff", fontWeight: "700" }}>필터</Text>
           </Pressable>
         </View>
       </View>
 
-      {/* ⚙️ 오른쪽 버튼 묶음 */}
-      <View
-        style={{
-          position: "absolute",
-          right: 12,
-          top: Platform.select({ ios: 120, android: 90 }),
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        {(["지금", "오늘", "내일"] as const).map((label) => {
-          const active = when === label;
-          return (
-            <Pressable
-              key={label}
-              onPress={() => setWhen(label)}
-              style={{
-                backgroundColor: active ? "#2477ff" : "#fff",
-                borderWidth: 1,
-                borderColor: active ? "#2477ff" : "#E5E7EB",
-                borderRadius: 18,
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-              }}
-            >
-              <Text style={{ color: active ? "#fff" : "#333", fontWeight: "600", fontSize: 12 }}>
-                {label}
-              </Text>
-            </Pressable>
-          );
-        })}
-
-        {/* 확대/축소/현위치 */}
-        <Pressable
-          onPress={() => zoom(0.7)}
-          style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 12, padding: 12 }}
-        >
-          <Ionicons name="add" size={18} color="#333" />
-        </Pressable>
-        <Pressable
-          onPress={() => zoom(1.3)}
-          style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 12, padding: 12 }}
-        >
-          <Ionicons name="remove" size={18} color="#333" />
-        </Pressable>
-        <Pressable
-          onPress={goMyLocation}
-          style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 12, padding: 12 }}
-        >
-          <Ionicons name="locate" size={18} color="#2477ff" />
-        </Pressable>
+      {/* 오른쪽 버튼 묶음 */}
+      <View style={{ position: "absolute", right: 14, top: 140, gap: 10 }}>
+        {["지금", "오늘", "내일"].map((t, i) => (
+          <Pressable
+            key={t}
+            style={{
+              backgroundColor: i === 0 ? "#2477ff" : "white",
+              borderRadius: 999,
+              paddingHorizontal: 16,
+              height: 44,
+              justifyContent: "center",
+              alignItems: "center",
+              borderWidth: 1,
+              borderColor: "#E5E7EB",
+            }}
+          >
+            <Text style={{ color: i === 0 ? "white" : "#111827", fontWeight: "700" }}>
+              {t}
+            </Text>
+          </Pressable>
+        ))}
+        <View style={{ gap: 10, alignItems: "center" }}>
+          <Pressable
+            onPress={() =>
+              mapRef.current?.animateToRegion({
+                ...region,
+                latitudeDelta: region.latitudeDelta * 0.7,
+                longitudeDelta: region.longitudeDelta * 0.7,
+              })
+            }
+            style={btnSquare}
+          >
+            <Text style={btnText}>＋</Text>
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              mapRef.current?.animateToRegion({
+                ...region,
+                latitudeDelta: region.latitudeDelta / 0.7,
+                longitudeDelta: region.longitudeDelta / 0.7,
+              })
+            }
+            style={btnSquare}
+          >
+            <Text style={btnText}>－</Text>
+          </Pressable>
+          <Pressable
+            onPress={async () => {
+              try {
+                const loc = await Location.getCurrentPositionAsync({});
+                moveTo(loc.coords.latitude, loc.coords.longitude);
+              } catch {}
+            }}
+            style={[btnSquare, { borderRadius: 16 }]}
+          >
+            <Ionicons name="locate-outline" size={20} color="#111827" />
+          </Pressable>
+        </View>
       </View>
 
-      {/* ➕ 내 공간 등록 */}
+      {/* ✅ 빠른탐색 위치로 수정된 FAB */}
       <Pressable
-        onPress={goRegister}
+        onPress={() => router.push("/space/new")}
         style={{
           position: "absolute",
+          bottom: 155,
           alignSelf: "center",
-          bottom: 170,
           backgroundColor: "#2477ff",
-          borderRadius: 24,
-          paddingHorizontal: 18,
-          paddingVertical: 12,
+          borderRadius: 30,
+          paddingHorizontal: 28,
+          paddingVertical: 14,
           shadowColor: "#000",
-          shadowOpacity: 0.15,
+          shadowOpacity: 0.1,
           shadowRadius: 6,
           elevation: 4,
         }}
       >
-        <Text style={{ color: "white", fontWeight: "700" }}>+ 내 공간 등록</Text>
+        <Text style={{ color: "white", fontWeight: "700", fontSize: 16 }}>
+          + 내 공간 등록
+        </Text>
       </Pressable>
 
-      {/* 하단 3버튼 + 배너 */}
-      <View
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: "#fff",
-        }}
-      >
-        <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: 12 }}>
-          <Pressable style={{ alignItems: "center", gap: 6 }}>
-            <FontAwesome5 name="box" size={18} color="#2477ff" />
-            <Text style={{ fontSize: 12, color: "#111" }}>내 공간</Text>
-          </Pressable>
-          <Pressable style={{ alignItems: "center", gap: 6 }}>
-            <Ionicons name="star-outline" size={20} color="#555" />
-            <Text style={{ fontSize: 12, color: "#111" }}>즐겨찾기</Text>
-          </Pressable>
-          <Pressable style={{ alignItems: "center", gap: 6 }}>
-            <FontAwesome5 name="suitcase" size={18} color="#2477ff" />
-            <Text style={{ fontSize: 12, color: "#111" }}>이용공간</Text>
-          </Pressable>
-        </View>
-
+      {/* ✅ 하단 버튼 3개 + 배너 (참고앱과 동일 위치/크기 비율) */}
+      <View style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}>
         <View
           style={{
-            marginHorizontal: 12,
-            marginBottom: 16,
-            backgroundColor: "#fff",
-            borderRadius: 12,
-            overflow: "hidden",
-            shadowColor: "#000",
-            shadowOpacity: 0.1,
-            shadowRadius: 8,
-            elevation: 4,
+            flexDirection: "row",
+            justifyContent: "space-around",
+            backgroundColor: "white",
+            paddingVertical: 10,
+            borderTopWidth: 0.5,
+            borderColor: "#e5e5e5",
           }}
         >
-          <Image source={{ uri: banner.image }} style={{ width: "100%", height: 66 }} />
+            <BottomButton icon={<Ionicons name="cube-outline" size={22} color="#2563EB" />} label="내 공간" />
+            <BottomButton icon={<Ionicons name="star-outline" size={22} color="#2563EB" />} label="즐겨찾기" />
+            <BottomButton icon={<Ionicons name="briefcase-outline" size={22} color="#2563EB" />} label="이용공간" />
         </View>
+        <Image
+          source={{ uri: banner.image }}
+          style={{ width: "100%", height: 64 }}
+          resizeMode="cover"
+        />
       </View>
 
       {loading && (
@@ -437,60 +380,28 @@ export default function HomeMap() {
         </View>
       )}
 
-      {/* 필터 시트(기존) */}
-      {filterOpen && (
-        <View
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "white",
-            borderTopLeftRadius: 16,
-            borderTopRightRadius: 16,
-            padding: 16,
-            gap: 12,
-          }}
-        >
-          <Text style={{ fontSize: 16, fontWeight: "700" }}>필터</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {["캐리어", "가방", "골프백", "악기", "서류", "부피대형", "귀중품불가"].map((t) => {
-              const active = selectedTags.includes(t);
-              return (
-                <Pressable
-                  key={t}
-                  onPress={() =>
-                    setSelectedTags((prev) =>
-                      active ? prev.filter((x) => x !== t) : [...prev, t]
-                    )
-                  }
-                  style={{
-                    borderWidth: 1,
-                    borderColor: active ? "#2477ff" : "#ddd",
-                    backgroundColor: active ? "#eef3ff" : "white",
-                    borderRadius: 999,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                  }}
-                >
-                  <Text style={{ color: active ? "#2477ff" : "#333" }}>#{t}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-            <Pressable onPress={() => setSelectedTags([])} style={{ paddingVertical: 12, paddingHorizontal: 8 }}>
-              <Text style={{ color: "gray" }}>초기화</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setFilterOpen(false)}
-              style={{ backgroundColor: "#2477ff", paddingHorizontal: 18, paddingVertical: 12, borderRadius: 10 }}
-            >
-              <Text style={{ color: "white", fontWeight: "700" }}>적용</Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
+      <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} bannerUri={banner.image} />
     </View>
   );
 }
+
+function BottomButton({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <View style={{ alignItems: "center" }}>
+      {icon}
+      <Text style={{ color: "#111827", fontSize: 13, marginTop: 3 }}>{label}</Text>
+    </View>
+  );
+}
+
+const btnSquare = {
+  width: 44,
+  height: 44,
+  backgroundColor: "white",
+  borderRadius: 12,
+  borderWidth: 1,
+  borderColor: "#E5E7EB",
+  alignItems: "center" as const,
+  justifyContent: "center" as const,
+};
+const btnText = { fontSize: 24, lineHeight: 24, color: "#111827" };
