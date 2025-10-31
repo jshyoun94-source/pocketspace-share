@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 
 import { db } from '@/firebase';
-import { deleteDoc, doc, onSnapshot } from 'firebase/firestore';
+import { deleteDoc, doc, onSnapsot } from 'firebase/firestore';
 
 export default function SpaceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
