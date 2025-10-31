@@ -1,6 +1,7 @@
 // app/space/new.tsx
-import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Stack, useRouter } from "expo-router";
+import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -16,11 +17,8 @@ import {
 import "react-native-get-random-values";
 import { v4 as uuidv4 } from "uuid";
 
-// ✅ 기존 AddressPicker(구글) → 네이버 컴포넌트로 교체
+// ✅ 구글 기반 AddressPicker
 import AddressPicker from "../../components/AddressPicker";
-
-// ❌ (삭제) 구글 Places 키는 더이상 사용하지 않음
-// const EXPO_PLACES_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY as string;
 
 const STORAGE_CATEGORIES = [
   "모든물품",
@@ -43,27 +41,41 @@ const DAY_LABELS: { key: DayKey; label: string }[] = [
   { key: "sun", label: "일" },
 ];
 
-type TimeRange = { start: string; end: string }; // "00" ~ "23"
+type TimeRange = { start: string; end: string };
 type ScheduleBlock = { id: string; days: Set<DayKey>; time: TimeRange };
-
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) =>
   i.toString().padStart(2, "0")
 );
 
+// ✅ 가격 옵션(원/시간)
+const PRICE_OPTIONS = [500, 1000, 2000, 5000] as const;
+
 export default function NewSpace() {
   const router = useRouter();
 
-  const [title, setTitle] = useState("");
-  const [address, setAddress] = useState("");
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
-    null
-  );
+  // 주소검색 입력란 표시 텍스트
+  const [addressQuery, setAddressQuery] = useState("");
+  const addressPickerKeyRef = useRef(0); // 선택 시 리마운트해서 dropdown 확실히 닫음
 
+  // 선택된 도로명주소(작은 글씨로 표시)
+  const [addressFormatted, setAddressFormatted] = useState("");
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  // 설명
+  const [desc, setDesc] = useState("");
+
+  // 카테고리
   const [categories, setCategories] = useState<StorageCategory[]>([]);
+
+  // 스케줄
   const [schedules, setSchedules] = useState<ScheduleBlock[]>([
     { id: uuidv4(), days: new Set<DayKey>(), time: { start: "09", end: "18" } },
   ]);
 
+  // 가격(원/시간)
+  const [hourlyPrice, setHourlyPrice] = useState<number | null>(1000);
+
+  // 시간 선택 모달 상태
   const [timePicker, setTimePicker] = useState<{
     visible: boolean;
     blockId: string | null;
@@ -107,207 +119,260 @@ export default function NewSpace() {
       ...prev,
       { id: uuidv4(), days: new Set<DayKey>(), time: { start: "09", end: "18" } },
     ]);
-
   const removeScheduleBlock = (id: string) =>
     setSchedules((prev) => prev.filter((b) => b.id !== id));
 
   const canSubmit = useMemo(() => {
     const hasDays = schedules.some((b) => b.days.size > 0);
-    return title.trim().length > 0 && address.trim().length > 0 && hasDays;
-  }, [title, address, schedules]);
+    return addressQuery.trim().length > 0 && coords && hourlyPrice && hasDays;
+  }, [addressQuery, coords, hourlyPrice, schedules]);
 
-  const handleSubmit = () => {
+  // ✅ 주소 선택 시: 입력란 텍스트 교체 + 도로명주소 표시 + 좌표 저장 + dropdown 강제 종료
+  const handlePickedAddress = (p: {
+    name?: string;
+    formatted_address?: string;
+    lat?: number;
+    lng?: number;
+  }) => {
+    const name = p.name || p.formatted_address || "";
+    setAddressQuery(name);
+    setAddressFormatted(p.formatted_address || "");
+    setCoords(p.lat && p.lng ? { lat: p.lat, lng: p.lng } : null);
+
+    // 드롭다운 자동 닫힘을 보장하기 위해 리마운트
+    addressPickerKeyRef.current += 1;
+  };
+
+  const handleSubmit = async () => {
     if (!canSubmit) {
-      Alert.alert("입력 확인", "제목/주소/요일-시간을 확인해 주세요.");
+      Alert.alert("입력 확인", "주소/가격/요일-시간을 확인해 주세요.");
       return;
     }
-    const payload = {
-      title: title.trim(),
-      address,
-      location: coords, // { lat, lng }
-      categories,
-      schedules: schedules.map((b) => ({
-        days: Array.from(b.days),
-        time: b.time,
-      })),
-      createdAt: Date.now(),
-    };
-    // TODO: Firestore 저장 로직 추가 예정
-    Alert.alert("등록 완료", "공간이 등록되었습니다.", [
-      { text: "확인", onPress: () => router.back() },
-    ]);
+    try {
+      const payload = {
+        id: uuidv4(),
+        title: addressQuery.trim(),
+        description: desc.trim(),
+        addressFormatted: addressFormatted.trim(),
+        location: coords, // { lat, lng }
+        categories,
+        schedules: schedules.map((b) => ({
+          days: Array.from(b.days),
+          time: b.time,
+        })),
+        hourlyPrice, // 원/시간
+        createdAt: Date.now(),
+      };
+
+      const raw = await AsyncStorage.getItem("spaces");
+      const spaces = raw ? JSON.parse(raw) : [];
+      spaces.push(payload);
+      await AsyncStorage.setItem("spaces", JSON.stringify(spaces));
+
+      Alert.alert("등록 완료", "공간이 등록되었습니다.", [
+        { text: "확인", onPress: () => router.back() },
+      ]);
+    } catch (e) {
+      console.warn(e);
+      Alert.alert("오류", "저장 중 문제가 발생했습니다.");
+    }
   };
 
   return (
-    <FlatList
-      data={[{ key: "form" }]}
-      keyExtractor={(i) => i.key}
-      keyboardShouldPersistTaps="handled"
-      contentContainerStyle={{ paddingBottom: 24 }}
-      renderItem={() => (
-        <View style={styles.container}>
-          <Text style={styles.header}>공간 등록</Text>
+    <>
+      <Stack.Screen
+        options={{
+          title: "공간등록",
+          headerBackTitle: "", // 아이콘만 표시
+        }}
+      />
 
-          {/* 공간명 */}
-          <Text style={styles.label}>공간명</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="예) 홍대입구역 근처 짐보관"
-            value={title}
-            onChangeText={setTitle}
-          />
+      <FlatList
+        data={[{ key: "form" }]}
+        keyExtractor={(i) => i.key}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: 24 }}
+        renderItem={() => (
+          <View style={styles.container}>
+            {/* ✅ 주소 검색 제목: 다른 부제목과 동일 스타일 */}
+            <Text style={styles.sectionTitle}>주소 검색</Text>
+            <View style={styles.gplacesWrap}>
+              <AddressPicker
+                key={`ap-${addressPickerKeyRef.current}`}
+                placeholder="도로명주소 또는 상호명"
+                defaultQuery={addressQuery}
+                onPicked={handlePickedAddress}
+              />
+            </View>
 
-          {/* 주소 자동완성 (네이버 기반으로 교체) */}
-          <Text style={styles.label}>주소 검색</Text>
-          <View style={styles.gplacesWrap}>
-            <AddressPicker
-              placeholder="도로명주소 또는 상호명"
-              onPicked={(p) => {
-                setAddress(p.formatted_address || p.name || "");
-                setCoords(
-                  p.lat && p.lng ? { lat: p.lat, lng: p.lng } : null
-                );
-                // 필요 시 자동 제목 채우기
-                if (!title && p.name) setTitle(p.name);
-              }}
+            {/* ✅ 도로명주소와 입력란 사이 간격을 더 촘촘하게 */}
+            {!!addressFormatted && (
+              <Text style={styles.addrSmall}>{addressFormatted}</Text>
+            )}
+
+            {/* 공간설명 */}
+            <Text style={styles.sectionTitle}>공간설명</Text>
+            <TextInput
+              style={[styles.input, { minHeight: 80, textAlignVertical: "top", paddingTop: 10 }]}
+              placeholder="보관 가능 물품이나 주의사항 등을 적어주세요."
+              multiline
+              value={desc}
+              onChangeText={setDesc}
             />
-          </View>
 
-          {/* 보관 가능한 물품 */}
-          <Text style={styles.sectionTitle}>보관가능한 물품</Text>
-          <View style={styles.chipRowWrap}>
-            {STORAGE_CATEGORIES.map((cat) => {
-              const active = categories.includes(cat);
-              return (
-                <TouchableOpacity
-                  key={cat}
-                  onPress={() => toggleCategory(cat)}
-                  style={[styles.chip, active && styles.chipActive]}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                    {cat}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* 보관가능시간 */}
-          <Text style={styles.sectionTitle}>보관가능시간</Text>
-          <Text style={styles.helper}>
-            요일은 여러 개 선택 가능해요. 각 블록마다 시간대를 설정할 수 있어요.
-          </Text>
-
-          {schedules.map((block, idx) => (
-            <View key={block.id} style={styles.block}>
-              <View style={styles.blockHeader}>
-                <Text style={styles.blockTitle}>시간 블록 #{idx + 1}</Text>
-                {schedules.length > 1 ? (
-                  <Pressable onPress={() => removeScheduleBlock(block.id)} hitSlop={8}>
-                    <Text style={styles.remove}>삭제</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-
-              {/* 요일 (가로 한 줄) */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.daysRow}
-              >
-                {DAY_LABELS.map(({ key, label }) => {
-                  const selected = block.days.has(key);
-                  return (
-                    <TouchableOpacity
-                      key={key}
-                      onPress={() => toggleDay(block.id, key)}
-                      style={[styles.dayChip, selected && styles.dayChipActive]}
-                    >
-                      <Text
-                        style={[
-                          styles.dayChipText,
-                          selected && styles.dayChipTextActive,
-                        ]}
-                      >
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
-              {/* 시간 선택 */}
-              <View style={styles.timeRow}>
-                <Text style={styles.timeLabel}>가능 시간</Text>
-                <Pressable
-                  style={styles.timeSelect}
-                  onPress={() => openTimePicker(block.id, "start")}
-                >
-                  <Text style={styles.timeSelectText}>{block.time.start}</Text>
-                </Pressable>
-                <Text style={styles.tilde}>~</Text>
-                <Pressable
-                  style={styles.timeSelect}
-                  onPress={() => openTimePicker(block.id, "end")}
-                >
-                  <Text style={styles.timeSelectText}>{block.time.end}</Text>
-                </Pressable>
-                <Text style={styles.timeSuffix}>시</Text>
-              </View>
+            {/* 보관가능한 물품 */}
+            <Text style={styles.sectionTitle}>보관가능한 물품</Text>
+            <View style={styles.chipRowWrap}>
+              {STORAGE_CATEGORIES.map((cat) => {
+                const active = categories.includes(cat);
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    onPress={() => toggleCategory(cat)}
+                    style={[styles.chip, active && styles.chipActive]}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-          ))}
 
-          <Pressable style={styles.addBtn} onPress={addScheduleBlock}>
-            <Text style={styles.addBtnText}>+ 시간 블록 추가</Text>
-          </Pressable>
+            {/* 보관가능시간 */}
+            <Text style={styles.sectionTitle}>보관가능시간</Text>
+            <Text style={styles.helper}>
+              요일은 여러 개 선택 가능해요. 각 블록마다 시간대를 설정할 수 있어요.
+            </Text>
 
-          <Pressable
-            style={[styles.submitBtn, !canSubmit && { opacity: 0.5 }]}
-            onPress={handleSubmit}
-            disabled={!canSubmit}
-          >
-            <Text style={styles.submitText}>등록하기</Text>
-          </Pressable>
-
-          {/* 시간 선택 모달 */}
-          <Modal
-            visible={timePicker.visible}
-            animationType="slide"
-            transparent
-            onRequestClose={closeTimePicker}
-          >
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalCard}>
-                <Text style={styles.modalTitle}>시간 선택 (00~23)</Text>
-                <FlatList
-                  data={HOUR_OPTIONS}
-                  keyExtractor={(h) => h}
-                  renderItem={({ item }) => (
-                    <Pressable style={styles.hourItem} onPress={() => onPickHour(item)}>
-                      <Text style={styles.hourText}>{item}</Text>
+            {schedules.map((block, idx) => (
+              <View key={block.id} style={styles.block}>
+                <View style={styles.blockHeader}>
+                  <Text style={styles.blockTitle}>시간 블록 #{idx + 1}</Text>
+                  {schedules.length > 1 ? (
+                    <Pressable onPress={() => removeScheduleBlock(block.id)} hitSlop={8}>
+                      <Text style={styles.remove}>삭제</Text>
                     </Pressable>
-                  )}
-                  ItemSeparatorComponent={() => <View style={styles.divider} />}
-                  contentContainerStyle={{ paddingBottom: 8 }}
-                  style={{ maxHeight: 320 }}
-                />
-                <Pressable style={styles.modalClose} onPress={closeTimePicker}>
-                  <Text style={styles.modalCloseText}>닫기</Text>
-                </Pressable>
+                  ) : null}
+                </View>
+
+                {/* 요일 */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.daysRow}
+                >
+                  {DAY_LABELS.map(({ key, label }) => {
+                    const selected = block.days.has(key);
+                    return (
+                      <TouchableOpacity
+                        key={key}
+                        onPress={() => toggleDay(block.id, key)}
+                        style={[styles.dayChip, selected && styles.dayChipActive]}
+                      >
+                        <Text
+                          style={[
+                            styles.dayChipText,
+                            selected && styles.dayChipTextActive,
+                          ]}
+                        >
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* 시간 선택 */}
+                <View style={styles.timeRow}>
+                  <Text style={styles.timeLabel}>가능 시간</Text>
+                  <Pressable
+                    style={styles.timeSelect}
+                    onPress={() => openTimePicker(block.id, "start")}
+                  >
+                    <Text style={styles.timeSelectText}>{block.time.start}</Text>
+                  </Pressable>
+                  <Text style={styles.tilde}>~</Text>
+                  <Pressable
+                    style={styles.timeSelect}
+                    onPress={() => openTimePicker(block.id, "end")}
+                  >
+                    <Text style={styles.timeSelectText}>{block.time.end}</Text>
+                  </Pressable>
+                  <Text style={styles.timeSuffix}>시</Text>
+                </View>
               </View>
+            ))}
+
+            <Pressable style={styles.addBtn} onPress={addScheduleBlock}>
+              <Text style={styles.addBtnText}>+ 시간 블록 추가</Text>
+            </Pressable>
+
+            {/* 보관가격(원/시간) */}
+            <Text style={styles.sectionTitle}>보관가격(원/시간)</Text>
+            <View style={styles.priceRow}>
+              {PRICE_OPTIONS.map((p) => {
+                const active = hourlyPrice === p;
+                return (
+                  <TouchableOpacity
+                    key={p}
+                    onPress={() => setHourlyPrice(p)}
+                    style={[styles.priceChip, active && styles.priceChipActive]}
+                  >
+                    <Text style={[styles.priceChipText, active && styles.priceChipTextActive]}>
+                      {p.toLocaleString()}원
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-          </Modal>
-        </View>
-      )}
-    />
+
+            <Pressable
+              style={[styles.submitBtn, !canSubmit && { opacity: 0.5 }]}
+              onPress={handleSubmit}
+              disabled={!canSubmit}
+            >
+              <Text style={styles.submitText}>등록하기</Text>
+            </Pressable>
+
+            {/* 시간 선택 모달 */}
+            <Modal
+              visible={timePicker.visible}
+              animationType="slide"
+              transparent
+              onRequestClose={closeTimePicker}
+            >
+              <View style={styles.modalOverlay}>
+                <View style={styles.modalCard}>
+                  <Text style={styles.modalTitle}>시간 선택 (00~23)</Text>
+                  <FlatList
+                    data={HOUR_OPTIONS}
+                    keyExtractor={(h) => h}
+                    renderItem={({ item }) => (
+                      <Pressable style={styles.hourItem} onPress={() => onPickHour(item)}>
+                        <Text style={styles.hourText}>{item}</Text>
+                      </Pressable>
+                    )}
+                    ItemSeparatorComponent={() => <View style={styles.divider} />}
+                    contentContainerStyle={{ paddingBottom: 8 }}
+                    style={{ maxHeight: 320 }}
+                  />
+                  <Pressable style={styles.modalClose} onPress={closeTimePicker}>
+                    <Text style={styles.modalCloseText}>닫기</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </Modal>
+          </View>
+        )}
+      />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: { padding: 16, gap: 12, backgroundColor: "#fff" },
-  header: { fontSize: 20, fontWeight: "700", marginBottom: 4 },
 
-  label: { fontSize: 13, color: "#666", marginTop: 8, marginBottom: 4 },
   input: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -327,8 +392,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
 
+  // ✅ 부제목 공통 스타일
   sectionTitle: { fontSize: 16, fontWeight: "700", marginTop: 12 },
+
   helper: { fontSize: 12, color: "#888" },
+
+  // ✅ 도로명주소(간격 더 촘촘하게)
+  addrSmall: { fontSize: 12, color: "#6B7280", marginTop: 4, marginLeft: 2 },
 
   chipRowWrap: {
     flexDirection: "row",
@@ -409,6 +479,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   addBtnText: { fontSize: 15, fontWeight: "600", color: "#111827" },
+
+  // 가격 선택
+  priceRow: { flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 8 },
+  priceChip: {
+    paddingHorizontal: 12,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  priceChipActive: { backgroundColor: "#0F766E", borderColor: "#0F766E" },
+  priceChipText: { fontSize: 13, color: "#374151" },
+  priceChipTextActive: { color: "#fff", fontWeight: "700" },
 
   submitBtn: {
     marginTop: 16,

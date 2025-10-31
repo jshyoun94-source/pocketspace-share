@@ -1,6 +1,9 @@
+// app/(tabs)/index.tsx
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
-import { useRouter } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { collection, getDocs } from "firebase/firestore";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -10,10 +13,9 @@ import {
   View,
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
-import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../firebase";
 
-// ✅ 네이버 자동완성 컴포넌트 (새로 만든 파일)
+// ✅ 자동완성 컴포넌트 (현재 AddressPicker는 구글 기반)
 import AddressPicker from "../../components/AddressPicker";
 
 type Space = {
@@ -85,19 +87,20 @@ export default function HomeMap() {
     })();
   }, []);
 
-  // Firestore에서 마커 로드 (기존 유지)
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
+  // ✅ Firestore + AsyncStorage 둘 다 로드해서 합치기
+  const loadSpaces = useCallback(async () => {
+    setLoading(true);
+    try {
+      // 1) Firestore
       const snap = await getDocs(collection(db, "spaces"));
-      const rows: Space[] = [];
+      const fsRows: Space[] = [];
       snap.forEach((d) => {
         const x: any = d.data();
         if (!x?.coords?.lat || !x?.coords?.lng) return;
-        rows.push({
+        fsRows.push({
           id: d.id,
           title: x.title ?? "공간",
-          pricePerHour: x.pricePerHour ?? 0,
+          pricePerHour: Number(x.pricePerHour ?? 0),
           coords: { lat: x.coords.lat, lng: x.coords.lng },
           address: x.address ?? "",
           tags: x.tags ?? [],
@@ -105,10 +108,46 @@ export default function HomeMap() {
           verified: x.verified ?? false,
         });
       });
-      setSpaces(rows);
+
+      // 2) Local(AsyncStorage) – new.tsx가 저장한 포맷을 Firestore 포맷으로 정규화
+      const raw = await AsyncStorage.getItem("spaces");
+      const localArr: any[] = raw ? JSON.parse(raw) : [];
+      const localRows: Space[] = localArr
+        .filter((s) => s?.location?.lat && s?.location?.lng)
+        .map((s) => ({
+          id: s.id, // uuid
+          title: s.title ?? s.addressFormatted ?? "공간",
+          pricePerHour: Number(s.hourlyPrice ?? 0),
+          coords: { lat: s.location.lat, lng: s.location.lng },
+          address: s.addressFormatted ?? "",
+          tags: s.categories ?? [], // 있으면 표시용
+          nightClosed: false,
+          verified: false,
+        }));
+
+      // 3) 합치기(간단히 이어붙임; id 충돌 시 Firestore 우선)
+      const fsIds = new Set(fsRows.map((r) => r.id));
+      const merged = [...fsRows, ...localRows.filter((r) => !fsIds.has(r.id))];
+
+      setSpaces(merged);
+    } catch (e) {
+      console.warn(e);
+    } finally {
       setLoading(false);
-    })();
+    }
   }, []);
+
+  // 최초 로드
+  useEffect(() => {
+    loadSpaces();
+  }, [loadSpaces]);
+
+  // 탭으로 다시 돌아왔을 때도 갱신(등록 직후 마커 보이게)
+  useFocusEffect(
+    useCallback(() => {
+      loadSpaces();
+    }, [loadSpaces])
+  );
 
   // 태그 필터(기존 유지)
   const filtered = useMemo(() => {
@@ -140,7 +179,7 @@ export default function HomeMap() {
         showsUserLocation
         loadingEnabled
       >
-        {/* Firestore 등록 마커 */}
+        {/* Firestore + Local 등록 마커 */}
         {filtered.map((s) => (
           <Marker
             key={s.id}
@@ -158,6 +197,8 @@ export default function HomeMap() {
                 borderRadius: 8,
                 minWidth: 54,
                 alignItems: "center",
+                borderWidth: 2,
+                borderColor: "#fff",
               }}
             >
               <Text style={{ color: "white", fontWeight: "bold" }}>
@@ -188,7 +229,7 @@ export default function HomeMap() {
         }}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          {/* ✅ 구글 TextInput 대신 네이버 AddressPicker로 교체 */}
+          {/* ✅ AddressPicker 유지 */}
           <View
             style={{
               flex: 1,
