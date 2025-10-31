@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
     FlatList,
+    Keyboard,
     Platform,
     Pressable,
     StyleSheet,
@@ -17,7 +18,7 @@ type Bias = { lat: number; lng: number; radius?: number };
 
 type PickedResult = {
   name?: string;
-  formatted_address?: string;
+  formatted_address?: string; // 전체 도로명주소로 전달
   lat?: number;
   lng?: number;
   source?: "google";
@@ -25,31 +26,44 @@ type PickedResult = {
 
 type Props = {
   placeholder?: string;
-  /** 현재 지도 중심 등으로 우선 추천 (Google locationbias 사용 + 정렬 가중치) */
   coordsBias?: Bias;
-  /** 후보 선택 시 콜백 */
   onPicked: (picked: PickedResult) => void;
-  /** 쿼리 변화 공유 */
   onQueryChange?: (q: string) => void;
-  /** 표시에서만 국가 접미사 제거 */
   hideCountrySuffix?: string; // "대한민국"
-  /** 최소 입력 글자 수 */
   minChars?: number; // default 2
-  /** 최대 표시 개수 */
   maxResults?: number; // default 15
-  /** 초기 값 */
   defaultQuery?: string;
-  /** 국가 제한(autocomplete components 필터). 예: "country:kr" */
   componentsFilter?: string; // default "country:kr"
-  /** UI 언어 */
   language?: string; // default "ko"
-  /** region 파라미터 (검색 지역 편향) */
   region?: string; // default "kr"
 };
 
 const PLACES_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? "";
-
 const AHEADERS = { Accept: "application/json" } as const;
+
+// ✅ 한국 도로명주소 문자열 생성기
+function composeKoreanRoadAddress(components: any[], fallback?: string) {
+  if (!Array.isArray(components)) return fallback ?? "";
+
+  const get = (type: string) => components.find((c: any) => c.types?.includes(type))?.long_name;
+
+  const lvl1 = get("administrative_area_level_1"); // 서울특별시/경기도
+  const lvl2 = get("administrative_area_level_2") || get("sublocality_level_1"); // 강서구
+  const route = get("route");                     // 강서로
+  const num = get("street_number");               // 466
+  const floor = get("floor");                     // 1층
+  const subpremise = get("subpremise");           // 101호
+  const premise = get("premise");                 // 건물명(있으면)
+
+  const parts = [lvl1, lvl2, [route, num].filter(Boolean).join(" ")].filter(Boolean);
+
+  // 뒤쪽 디테일: 건물명/층/호(있으면)
+  const tail = [premise, floor, subpremise].filter(Boolean).join(" ");
+  if (tail) parts.push(tail);
+
+  const s = parts.join(" ").trim();
+  return s || (fallback ?? "");
+}
 
 function useDebounced<T>(value: T, delay = 300) {
   const [v, setV] = useState(value);
@@ -85,6 +99,13 @@ export default function AddressPicker({
   const mounted = useRef(true);
   const controllerRef = useRef<AbortController | null>(null);
   const sessionTokenRef = useRef<string>(uuidv4()); // 입력 세션 토큰
+  const inputRef = useRef<TextInput>(null);
+
+  // ✅ defaultQuery가 바뀌면 입력창 동기화 + 닫기
+  useEffect(() => {
+    setQ(defaultQuery || "");
+    setOpen(false);
+  }, [defaultQuery]);
 
   useEffect(() => {
     return () => {
@@ -94,7 +115,7 @@ export default function AddressPicker({
   }, []);
 
   const trimCountry = (s?: string) =>
-    s ? s.replace(new RegExp(`,?\\s*${hideCountrySuffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), "") : s;
+    s ? s.replace(new RegExp(`,?\\s*${hideCountrySuffix.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}$`), "") : s;
 
   useEffect(() => {
     onQueryChange?.(q);
@@ -133,11 +154,9 @@ export default function AddressPicker({
           language,
           region,
           sessiontoken: sessionTokenRef.current,
-          // types: 'geocode|establishment' // 필요 시 조정
         });
 
         if (componentsFilter) params.set("components", componentsFilter);
-        // locationbias (point) 적용
         if (coordsBias?.lat && coordsBias?.lng) {
           params.set("locationbias", `point:${coordsBias.lat},${coordsBias.lng}`);
         }
@@ -153,7 +172,6 @@ export default function AddressPicker({
         const autoJson = await autoRes.json();
 
         if (autoJson.status !== "OK" && autoJson.status !== "ZERO_RESULTS") {
-          // 예: REQUEST_DENIED, OVER_QUERY_LIMIT 등
           setErrorMsg(`Autocomplete 실패: ${autoJson.status}`);
           setItems([]);
           setOpen(false);
@@ -165,13 +183,9 @@ export default function AddressPicker({
         for (const p of preds.slice(0, 25)) {
           const main = p.structured_formatting?.main_text ?? p.description ?? "";
           const secondary = p.structured_formatting?.secondary_text ?? undefined;
-          let score = 0;
-          // coordsBias가 있는 경우, Google은 내부적으로 bias하지만 정렬 가중치 보정
-          // (여기서는 description에 좌표 없음 → 일단 0 유지)
-          acc.push({ id: p.place_id, main, secondary, place_id: p.place_id, score });
+          acc.push({ id: p.place_id, main, secondary, place_id: p.place_id });
         }
 
-        // 정렬(현재 동일 가중치) 후 제한
         const limited = acc.slice(0, maxResults);
 
         if (!cancelled && mounted.current) {
@@ -179,6 +193,43 @@ export default function AddressPicker({
           setOpen(limited.length > 0);
           if (limited.length === 0) setErrorMsg("검색 결과가 없습니다.");
         }
+
+        // ✅ 1.5) 상위 N개 Details 프리페치로 '전체 도로명주소' 보이기
+        const DETAILS_PREVIEW_COUNT = 5;
+        const heads = limited.slice(0, DETAILS_PREVIEW_COUNT);
+
+        await Promise.all(
+          heads.map(async (row) => {
+            try {
+              const dp = new URLSearchParams({
+                key: PLACES_KEY,
+                place_id: row.place_id,
+                sessiontoken: sessionTokenRef.current,
+                language,
+                region,
+                fields: ["formatted_address", "address_components"].join(","),
+              });
+              const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?${dp.toString()}`;
+              const detRes = await fetch(detailUrl, { headers: AHEADERS, signal: ctl.signal });
+              const detJson = await detRes.json();
+              if (detJson.status === "OK") {
+                const comp = detJson.result?.address_components ?? [];
+                const formatted = detJson.result?.formatted_address;
+                const full = composeKoreanRoadAddress(comp, formatted);
+
+                if (!cancelled && mounted.current) {
+                  setItems((prev) =>
+                    prev.map((it) =>
+                      it.id === row.id ? { ...it, secondary: trimCountry(full) } : it
+                    )
+                  );
+                }
+              }
+            } catch {
+              /* ignore each row error */
+            }
+          })
+        );
       } catch (e: any) {
         if (e?.name === "AbortError") return;
         if (!cancelled && mounted.current) {
@@ -199,51 +250,62 @@ export default function AddressPicker({
 
   const showOverlay = open && items.length > 0;
 
-  const handlePick = async (row: Row) => {
+  const handlePick = async (row: { id: string; main: string; place_id: string; secondary?: string }) => {
     try {
       setLoading(true);
-      // ---- 2) Place Details (좌표/정식 주소 얻기) ----
+      // ---- 2) Place Details ----
       const dp = new URLSearchParams({
         key: PLACES_KEY,
         place_id: row.place_id,
         sessiontoken: sessionTokenRef.current,
         language,
         region,
-        fields: ["name", "formatted_address", "geometry/location"].join(","),
+        fields: ["name", "formatted_address", "address_components", "geometry/location"].join(","),
       });
       const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?${dp.toString()}`;
       const detRes = await fetch(detailUrl, { headers: AHEADERS });
       const detJson = await detRes.json();
+
       if (detJson.status !== "OK") {
-        // 디테일 실패해도 일단 텍스트만 전달
+        // 디테일 실패해도 입력란/콜백 처리
+        const fallback = trimCountry(row.secondary ?? row.main);
+        const nameText = trimCountry(row.main) || "";
+        setQ(nameText);
         onPicked({
           name: row.main,
-          formatted_address: trimCountry(row.secondary || row.main),
+          formatted_address: fallback,
           source: "google",
         });
       } else {
         const r = detJson.result;
         const lat = r?.geometry?.location?.lat;
         const lng = r?.geometry?.location?.lng;
+        const fullAddr = composeKoreanRoadAddress(r?.address_components, r?.formatted_address);
+        const nameText = trimCountry(r?.name ?? row.main) || "";
+        setQ(nameText);
         onPicked({
           name: r?.name ?? row.main,
-          formatted_address: trimCountry(r?.formatted_address ?? row.secondary ?? row.main),
+          formatted_address: trimCountry(fullAddr),
           lat,
           lng,
           source: "google",
         });
       }
     } catch {
+      const fallback = trimCountry(row.secondary ?? row.main);
+      const nameText = trimCountry(row.main) || "";
+      setQ(nameText);
       onPicked({
         name: row.main,
-        formatted_address: trimCountry(row.secondary ?? row.main),
+        formatted_address: fallback,
         source: "google",
       });
     } finally {
-      // 세션 토큰은 선택 후 새로 발급(권장)
       sessionTokenRef.current = uuidv4();
       setOpen(false);
       setLoading(false);
+      inputRef.current?.blur();
+      Keyboard.dismiss();
     }
   };
 
@@ -258,6 +320,7 @@ export default function AddressPicker({
       )}
 
       <TextInput
+        ref={inputRef}
         value={q}
         onChangeText={setQ}
         placeholder={placeholder}
@@ -350,10 +413,7 @@ const s = StyleSheet.create({
   warnText: { color: "#1D4ED8", fontSize: 12 },
   errorWrap: { marginTop: 6 },
   errorText: { color: "#DC2626", fontSize: 12 },
-  overlay: {
-    position: "absolute",
-    top: 0, left: 0, right: 0, bottom: 0,
-  },
+  overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   dropdownWrap: {
     position: "absolute",
     top: 48,

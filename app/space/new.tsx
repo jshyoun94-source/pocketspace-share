@@ -55,7 +55,7 @@ export default function NewSpace() {
 
   // 주소검색 입력란 표시 텍스트
   const [addressQuery, setAddressQuery] = useState("");
-  const addressPickerKeyRef = useRef(0); // 선택 시 리마운트해서 dropdown 확실히 닫음
+  const addressPickerKeyRef = useRef(0); // 선택 시 리마운트해 드롭다운 닫힘 보강
 
   // 선택된 도로명주소(작은 글씨로 표시)
   const [addressFormatted, setAddressFormatted] = useState("");
@@ -127,7 +127,7 @@ export default function NewSpace() {
     return addressQuery.trim().length > 0 && coords && hourlyPrice && hasDays;
   }, [addressQuery, coords, hourlyPrice, schedules]);
 
-  // ✅ 주소 선택 시: 입력란 텍스트 교체 + 도로명주소 표시 + 좌표 저장 + dropdown 강제 종료
+  // ✅ 주소 선택 시: 입력란 텍스트 교체 + 도로명주소 표시 + 좌표 저장 + 드롭다운 닫힘 보장(리마운트)
   const handlePickedAddress = (p: {
     name?: string;
     formatted_address?: string;
@@ -139,7 +139,7 @@ export default function NewSpace() {
     setAddressFormatted(p.formatted_address || "");
     setCoords(p.lat && p.lng ? { lat: p.lat, lng: p.lng } : null);
 
-    // 드롭다운 자동 닫힘을 보장하기 위해 리마운트
+    // 리마운트로 드롭다운 강제 종료 보강
     addressPickerKeyRef.current += 1;
   };
 
@@ -194,7 +194,7 @@ export default function NewSpace() {
         contentContainerStyle={{ paddingBottom: 24 }}
         renderItem={() => (
           <View style={styles.container}>
-            {/* ✅ 주소 검색 제목: 다른 부제목과 동일 스타일 */}
+            {/* ✅ 부제목 통일: 주소 검색 */}
             <Text style={styles.sectionTitle}>주소 검색</Text>
             <View style={styles.gplacesWrap}>
               <AddressPicker
@@ -205,7 +205,7 @@ export default function NewSpace() {
               />
             </View>
 
-            {/* ✅ 도로명주소와 입력란 사이 간격을 더 촘촘하게 */}
+            {/* ✅ 도로명주소 간격 촘촘히 */}
             {!!addressFormatted && (
               <Text style={styles.addrSmall}>{addressFormatted}</Text>
             )}
@@ -390,15 +390,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     position: "relative",
     backgroundColor: "#fff",
+    marginBottom: 4, // ✅ 입력창과 도로명주소 간격 축소
   },
 
-  // ✅ 부제목 공통 스타일
+  // ✅ 부제목 공통 스타일 (주소 검색 포함)
   sectionTitle: { fontSize: 16, fontWeight: "700", marginTop: 12 },
 
   helper: { fontSize: 12, color: "#888" },
 
-  // ✅ 도로명주소(간격 더 촘촘하게)
-  addrSmall: { fontSize: 12, color: "#6B7280", marginTop: 4, marginLeft: 2 },
+  // ✅ 도로명주소(좀 더 촘촘)
+  addrSmall: { fontSize: 12, color: "#6B7280", marginTop: 2, marginLeft: 2 },
 
   chipRowWrap: {
     flexDirection: "row",
