@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
@@ -12,10 +13,9 @@ import {
   View,
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
-import { Ionicons } from "@expo/vector-icons";
-import { db } from "../../firebase";
 import AddressPicker from "../../components/AddressPicker";
 import SideMenu from "../../components/SideMenu";
+import { db } from "../../firebase";
 
 type Space = {
   id: string;
@@ -48,7 +48,7 @@ export default function HomeMap() {
 
   const banner = useMemo(
     () => ({
-      image: "https://dummyimage.com/1400x180/EEF3FF/2477FF&text=%EB%B0%B0%EB%84%88",
+      image: "https://dummyimage.com/1400x180/EEF3FF/2477FF&text=%EA%B3%B5%ED%95%AD+%EC%A3%BC%EC%B0%A8%EB%8C%80%ED%96%89+%EB%B0%B0%EB%84%88",
       link: "https://example.com",
     }),
     []
@@ -258,7 +258,7 @@ export default function HomeMap() {
         </View>
       </View>
 
-      {/* 오른쪽 버튼 묶음 */}
+      {/* 오른쪽 버튼 */}
       <View style={{ position: "absolute", right: 14, top: 140, gap: 10 }}>
         {["지금", "오늘", "내일"].map((t, i) => (
           <Pressable
@@ -318,20 +318,20 @@ export default function HomeMap() {
         </View>
       </View>
 
-      {/* ✅ 빠른탐색 위치로 수정된 FAB */}
+      {/* 내공간등록 버튼 (살짝 작게 & 위치 조정) */}
       <Pressable
         onPress={() => router.push("/space/new")}
         style={{
           position: "absolute",
-          bottom: 155,
+          bottom: 170, // 카드 위보다 약간 띄움
           alignSelf: "center",
           backgroundColor: "#2477ff",
-          borderRadius: 30,
-          paddingHorizontal: 28,
-          paddingVertical: 14,
+          borderRadius: 26,
+          paddingHorizontal: 22,
+          paddingVertical: 12,
           shadowColor: "#000",
           shadowOpacity: 0.1,
-          shadowRadius: 6,
+          shadowRadius: 5,
           elevation: 4,
         }}
       >
@@ -340,27 +340,54 @@ export default function HomeMap() {
         </Text>
       </Pressable>
 
-      {/* ✅ 하단 버튼 3개 + 배너 (참고앱과 동일 위치/크기 비율) */}
-      <View style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}>
+      {/* 하단 흰색 카드 - 높이 축소 */}
+      <View style={{ position: "absolute", left: 12, right: 12, bottom: 16 }}>
         <View
           style={{
-            flexDirection: "row",
-            justifyContent: "space-around",
             backgroundColor: "white",
-            paddingVertical: 10,
-            borderTopWidth: 0.5,
-            borderColor: "#e5e5e5",
+            borderRadius: 16,
+            paddingVertical: 8,
+            paddingHorizontal: 12,
+            shadowColor: "#000",
+            shadowOpacity: 0.08,
+            shadowRadius: 10,
+            elevation: 6,
           }}
         >
-            <BottomButton icon={<Ionicons name="cube-outline" size={22} color="#2563EB" />} label="내 공간" />
-            <BottomButton icon={<Ionicons name="star-outline" size={22} color="#2563EB" />} label="즐겨찾기" />
-            <BottomButton icon={<Ionicons name="briefcase-outline" size={22} color="#2563EB" />} label="이용공간" />
+          {/* 버튼 3개 */}
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-around",
+              alignItems: "center",
+            }}
+          >
+            <BottomButton
+              icon={<Ionicons name="cube-outline" size={22} color="#2563EB" />}
+              label="내 공간"
+            />
+            <BottomButton
+              icon={<Ionicons name="star-outline" size={22} color="#2563EB" />}
+              label="즐겨찾기"
+            />
+            <BottomButton
+              icon={<Ionicons name="briefcase-outline" size={22} color="#2563EB" />}
+              label="이용공간"
+            />
+          </View>
+
+          {/* 구분선 */}
+          <View style={{ height: 1, backgroundColor: "#E5E7EB", marginVertical: 8 }} />
+
+          {/* 배너 높이 축소 */}
+          <View style={{ borderRadius: 12, overflow: "hidden" }}>
+            <Image
+              source={{ uri: banner.image }}
+              style={{ width: "100%", height: 70 }}
+              resizeMode="cover"
+            />
+          </View>
         </View>
-        <Image
-          source={{ uri: banner.image }}
-          style={{ width: "100%", height: 64 }}
-          resizeMode="cover"
-        />
       </View>
 
       {loading && (
