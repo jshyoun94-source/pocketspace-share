@@ -41,23 +41,36 @@ type Props = {
 const PLACES_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? "";
 const AHEADERS = { Accept: "application/json" } as const;
 
-// ✅ 한국 도로명주소 문자열 생성기
+/** 앞쪽의 "대한민국 " 접두만 제거 (뒤쪽 제거 아님) */
+function stripLeadingCountry(s?: string, country = "대한민국") {
+  if (!s) return "";
+  return s.replace(new RegExp(`^\\s*${country}\\s*`), "").trim();
+}
+
+/** adr_address에서 "… 349" 같은 street number를 추출 */
+function extractAdrStreet(adr?: string): string | undefined {
+  if (!adr) return undefined;
+  // adr_address 예: <span class="street-address">목동서로 349</span>
+  const m = adr.match(/class="street-address">([^<]+)</i);
+  return m?.[1]?.trim();
+}
+
+/** address_components로 한국식 도로명주소 구성 (보조 용도) */
 function composeKoreanRoadAddress(components: any[], fallback?: string) {
   if (!Array.isArray(components)) return fallback ?? "";
 
-  const get = (type: string) => components.find((c: any) => c.types?.includes(type))?.long_name;
+  const get = (type: string) =>
+    components.find((c: any) => c.types?.includes(type))?.long_name;
 
   const lvl1 = get("administrative_area_level_1"); // 서울특별시/경기도
-  const lvl2 = get("administrative_area_level_2") || get("sublocality_level_1"); // 강서구
-  const route = get("route");                     // 강서로
-  const num = get("street_number");               // 466
-  const floor = get("floor");                     // 1층
-  const subpremise = get("subpremise");           // 101호
-  const premise = get("premise");                 // 건물명(있으면)
+  const lvl2 = get("administrative_area_level_2") || get("sublocality_level_1"); // 강서구/양천구
+  const route = get("route"); // 목동서로
+  const num = get("street_number"); // 349
+  const floor = get("floor"); // 1층
+  const subpremise = get("subpremise"); // 101호
+  const premise = get("premise"); // 건물명
 
   const parts = [lvl1, lvl2, [route, num].filter(Boolean).join(" ")].filter(Boolean);
-
-  // 뒤쪽 디테일: 건물명/층/호(있으면)
   const tail = [premise, floor, subpremise].filter(Boolean).join(" ");
   if (tail) parts.push(tail);
 
@@ -101,7 +114,6 @@ export default function AddressPicker({
   const sessionTokenRef = useRef<string>(uuidv4()); // 입력 세션 토큰
   const inputRef = useRef<TextInput>(null);
 
-  // ✅ defaultQuery가 바뀌면 입력창 동기화 + 닫기
   useEffect(() => {
     setQ(defaultQuery || "");
     setOpen(false);
@@ -113,9 +125,6 @@ export default function AddressPicker({
       controllerRef.current?.abort();
     };
   }, []);
-
-  const trimCountry = (s?: string) =>
-    s ? s.replace(new RegExp(`,?\\s*${hideCountrySuffix.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}$`), "") : s;
 
   useEffect(() => {
     onQueryChange?.(q);
@@ -147,7 +156,7 @@ export default function AddressPicker({
       setLoading(true);
       setErrorMsg(null);
       try {
-        // ---- 1) Autocomplete ----
+        // 1) Autocomplete
         const params = new URLSearchParams({
           input: dq.trim(),
           key: PLACES_KEY,
@@ -155,7 +164,6 @@ export default function AddressPicker({
           region,
           sessiontoken: sessionTokenRef.current,
         });
-
         if (componentsFilter) params.set("components", componentsFilter);
         if (coordsBias?.lat && coordsBias?.lng) {
           params.set("locationbias", `point:${coordsBias.lat},${coordsBias.lng}`);
@@ -170,7 +178,6 @@ export default function AddressPicker({
           return;
         }
         const autoJson = await autoRes.json();
-
         if (autoJson.status !== "OK" && autoJson.status !== "ZERO_RESULTS") {
           setErrorMsg(`Autocomplete 실패: ${autoJson.status}`);
           setItems([]);
@@ -194,7 +201,7 @@ export default function AddressPicker({
           if (limited.length === 0) setErrorMsg("검색 결과가 없습니다.");
         }
 
-        // ✅ 1.5) 상위 N개 Details 프리페치로 '전체 도로명주소' 보이기
+        // 1.5) 상위 N개 Details 프리페치 → 리스트에서도 '전체 도로명주소(건물번호 포함)' 표기
         const DETAILS_PREVIEW_COUNT = 5;
         const heads = limited.slice(0, DETAILS_PREVIEW_COUNT);
 
@@ -207,26 +214,37 @@ export default function AddressPicker({
                 sessiontoken: sessionTokenRef.current,
                 language,
                 region,
-                fields: ["formatted_address", "address_components"].join(","),
+                fields: ["formatted_address", "address_components", "adr_address"].join(","),
               });
               const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?${dp.toString()}`;
               const detRes = await fetch(detailUrl, { headers: AHEADERS, signal: ctl.signal });
               const detJson = await detRes.json();
               if (detJson.status === "OK") {
-                const comp = detJson.result?.address_components ?? [];
-                const formatted = detJson.result?.formatted_address;
-                const full = composeKoreanRoadAddress(comp, formatted);
+                const r = detJson.result ?? {};
+                // ✅ 1순위: formatted_address (선두의 '대한민국'만 제거)
+                let full = stripLeadingCountry(r.formatted_address, hideCountrySuffix);
+                // 숫자(건물번호)가 없으면 보조 조합
+                if (!/\d/.test(full)) {
+                  const composed = composeKoreanRoadAddress(r.address_components ?? [], full);
+                  full = stripLeadingCountry(composed, hideCountrySuffix);
+                }
+                // 그래도 숫자가 없다면 adr_address에서 추출 보강
+                if (!/\d/.test(full)) {
+                  const adrStreet = extractAdrStreet(r.adr_address);
+                  if (adrStreet && !full.includes(adrStreet)) {
+                    full = full.replace(/(서로|로|길)(?!\s*\d)/, `$1 ${adrStreet.split(" ").pop()}`);
+                  }
+                }
 
+                const finalSec = full || row.secondary || "";
                 if (!cancelled && mounted.current) {
                   setItems((prev) =>
-                    prev.map((it) =>
-                      it.id === row.id ? { ...it, secondary: trimCountry(full) } : it
-                    )
+                    prev.map((it) => (it.id === row.id ? { ...it, secondary: finalSec } : it))
                   );
                 }
               }
             } catch {
-              /* ignore each row error */
+              /* ignore */
             }
           })
         );
@@ -253,51 +271,66 @@ export default function AddressPicker({
   const handlePick = async (row: { id: string; main: string; place_id: string; secondary?: string }) => {
     try {
       setLoading(true);
-      // ---- 2) Place Details ----
+      // 2) Place Details
       const dp = new URLSearchParams({
         key: PLACES_KEY,
         place_id: row.place_id,
         sessiontoken: sessionTokenRef.current,
         language,
         region,
-        fields: ["name", "formatted_address", "address_components", "geometry/location"].join(","),
+        fields: ["name", "formatted_address", "address_components", "adr_address", "geometry/location"].join(","),
       });
       const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?${dp.toString()}`;
       const detRes = await fetch(detailUrl, { headers: AHEADERS });
       const detJson = await detRes.json();
 
-      if (detJson.status !== "OK") {
-        // 디테일 실패해도 입력란/콜백 처리
-        const fallback = trimCountry(row.secondary ?? row.main);
-        const nameText = trimCountry(row.main) || "";
-        setQ(nameText);
-        onPicked({
-          name: row.main,
-          formatted_address: fallback,
-          source: "google",
-        });
-      } else {
-        const r = detJson.result;
-        const lat = r?.geometry?.location?.lat;
-        const lng = r?.geometry?.location?.lng;
-        const fullAddr = composeKoreanRoadAddress(r?.address_components, r?.formatted_address);
-        const nameText = trimCountry(r?.name ?? row.main) || "";
-        setQ(nameText);
-        onPicked({
-          name: r?.name ?? row.main,
-          formatted_address: trimCountry(fullAddr),
-          lat,
-          lng,
-          source: "google",
-        });
+      let finalName = row.main;
+      let finalAddr = stripLeadingCountry(row.secondary, hideCountrySuffix);
+      let lat: number | undefined;
+      let lng: number | undefined;
+
+      if (detJson.status === "OK") {
+        const r = detJson.result ?? {};
+        finalName = r?.name ?? row.main;
+        lat = r?.geometry?.location?.lat;
+        lng = r?.geometry?.location?.lng;
+
+        // ✅ 1순위: formatted_address 그대로(선두 국가만 제거)
+        let full = stripLeadingCountry(r.formatted_address, hideCountrySuffix);
+
+        // 숫자가 없으면 보조 조합 사용
+        if (!/\d/.test(full)) {
+          full = stripLeadingCountry(
+            composeKoreanRoadAddress(r.address_components ?? [], r.formatted_address),
+            hideCountrySuffix
+          );
+        }
+
+        // 그래도 없으면 adr_address(HTML)에서 마지막 숫자 보강
+        if (!/\d/.test(full)) {
+          const adrStreet = extractAdrStreet(r.adr_address);
+          if (adrStreet && !full.includes(adrStreet)) {
+            full = full.replace(/(서로|로|길)(?!\s*\d)/, `$1 ${adrStreet.split(" ").pop()}`);
+          }
+        }
+
+        finalAddr = full || finalAddr;
       }
+
+      // 입력창엔 장소명 유지
+      setQ(stripLeadingCountry(finalName, hideCountrySuffix));
+      onPicked({
+        name: finalName,
+        formatted_address: finalAddr,
+        lat,
+        lng,
+        source: "google",
+      });
     } catch {
-      const fallback = trimCountry(row.secondary ?? row.main);
-      const nameText = trimCountry(row.main) || "";
-      setQ(nameText);
+      setQ(row.main);
       onPicked({
         name: row.main,
-        formatted_address: fallback,
+        formatted_address: stripLeadingCountry(row.secondary, hideCountrySuffix),
         source: "google",
       });
     } finally {
@@ -362,11 +395,11 @@ export default function AddressPicker({
                 renderItem={({ item }) => (
                   <Pressable style={s.row} onPress={() => handlePick(item)}>
                     <Text style={s.main} numberOfLines={1}>
-                      {trimCountry(item.main)}
+                      {stripLeadingCountry(item.main, hideCountrySuffix)}
                     </Text>
                     {!!item.secondary && (
                       <Text style={s.sub} numberOfLines={1}>
-                        {trimCountry(item.secondary)}
+                        {item.secondary}
                       </Text>
                     )}
                   </Pressable>
