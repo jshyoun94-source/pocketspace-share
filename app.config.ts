@@ -13,3 +13,4 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     EXPO_PUBLIC_NAVER_CLIENT_SECRET: process.env.EXPO_PUBLIC_NAVER_CLIENT_SECRET,
   },
 });
+// ✅ 테스트 푸시용 주석 (이 줄은 아무 기능에도 영향 없음)
