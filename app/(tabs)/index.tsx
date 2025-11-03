@@ -16,6 +16,8 @@ import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import AddressPicker from "../../components/AddressPicker";
 import SideMenu from "../../components/SideMenu";
 import { db } from "../../firebase";
+// ✅ 음성검색 버튼 컴포넌트 추가
+import VoiceSearchButton from "../../components/VoiceSearchButton";
 
 type Space = {
   id: string;
@@ -145,6 +147,26 @@ export default function HomeMap() {
       350
     );
 
+  // ✅ 음성 인식 결과 처리: 주소/장소명을 좌표로 변환하여 지도 이동 + 마커 표시
+  const handleVoiceResult = useCallback(async (spoken: string) => {
+    const text = (spoken || "").trim();
+    if (!text) return;
+
+    try {
+      // 기기/플랫폼 지오코더 이용 (간단 & 빠름)
+      const results = await Location.geocodeAsync(text);
+      if (results?.length) {
+        const { latitude, longitude } = results[0];
+        setPicked({ lat: latitude, lng: longitude, name: text, formatted: text });
+        moveTo(latitude, longitude);
+      } else {
+        console.warn("지오코딩 결과 없음:", text);
+      }
+    } catch (err) {
+      console.warn("지오코딩 실패:", err);
+    }
+  }, []);
+
   return (
     <View style={{ flex: 1 }}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -231,16 +253,19 @@ export default function HomeMap() {
                     lat: p.lat,
                     lng: p.lng,
                     name: p.name,
-                    formatted: p.formatted_address,
+                    // AddressPicker는 formatted_address를 내려주는 구조임
+                    // (네 버전에서 속성명이 다르면 p.formatted 등으로 맞춰줘)
+                    formatted: (p as any).formatted_address ?? (p as any).formatted,
                   });
                   moveTo(p.lat, p.lng);
                 }
               }}
             />
           </View>
-          <Pressable style={{ padding: 6 }}>
-            <Ionicons name="mic-outline" size={20} color="#333" />
-          </Pressable>
+
+          {/* 🔄 기존 Ionicons 마이크 → 음성검색 컴포넌트로 교체 */}
+          <VoiceSearchButton onResult={handleVoiceResult} lang="ko-KR" />
+
           <Pressable
             onPress={() => setFilterOpen(true)}
             style={{

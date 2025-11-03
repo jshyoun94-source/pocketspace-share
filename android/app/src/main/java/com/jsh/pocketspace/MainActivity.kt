@@ -1,4 +1,4 @@
-package com.jshyoun94.pocketspace
+package com.jsh.pocketspace
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

@@ -69,6 +69,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - ExpoSpeechRecognition (2.1.5):
+    - ExpoModulesCore
   - ExpoSplashScreen (31.0.10):
     - ExpoModulesCore
   - ExpoWebBrowser (15.0.8):
@@ -2028,6 +2030,7 @@ DEPENDENCIES:
   - ExpoLinking (from `../node_modules/expo-linking/ios`)
   - ExpoLocation (from `../node_modules/expo-location/ios`)
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
+  - ExpoSpeechRecognition (from `../node_modules/expo-speech-recognition/ios`)
   - ExpoSplashScreen (from `../node_modules/expo-splash-screen/ios`)
   - ExpoWebBrowser (from `../node_modules/expo-web-browser/ios`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
@@ -2131,6 +2134,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-location/ios"
   ExpoModulesCore:
     :path: "../node_modules/expo-modules-core"
+  ExpoSpeechRecognition:
+    :path: "../node_modules/expo-speech-recognition/ios"
   ExpoSplashScreen:
     :path: "../node_modules/expo-splash-screen/ios"
   ExpoWebBrowser:
@@ -2298,6 +2303,7 @@ SPEC CHECKSUMS:
   ExpoLinking: f5c171877e118e792cb9a77e5ade0b080d899b14
   ExpoLocation: 1dc9e4c06ef66ed081348a11eb637d1dfecc7d61
   ExpoModulesCore: ed46799cfdf75784ee3ca37dac982c5298683e83
+  ExpoSpeechRecognition: 6f2b4a9f2597f23592c85e1c4dad99d8818803c8
   ExpoSplashScreen: 9d2ff8fa08f2c00336a83f93bebffed3a8312519
   ExpoWebBrowser: 51218ce6ef35ea769e33409aac87fea3df4b919d
   FBLazyVector: e95a291ad2dadb88e42b06e0c5fb8262de53ec12
