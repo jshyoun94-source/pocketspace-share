@@ -10,10 +10,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version: "1.0.0",
 
   orientation: "portrait",
-  userInterfaceStyle: "automatic",          // ← app.json 기준으로 통일
-  newArchEnabled: true,                      // ← app.json에 있던 옵션 반영
+  userInterfaceStyle: "automatic",
+  newArchEnabled: true,
 
-  // 앱 아이콘/스플래시: app.json 경로를 우선 사용
   icon: "./assets/images/icon.png",
   splash: {
     image: "./assets/images/splash-icon.png",
@@ -23,15 +22,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
 
   assetBundlePatterns: ["**/*"],
 
-  // Dev Client/Deep Link용
-  scheme: "pocketspace",
+  // ✅ 네이버 콘솔에 등록한 URL Scheme와 동일
+  scheme: "com.jshyoun94.pocketspace",
 
   ios: {
     supportsTablet: true,
-    // ★ 번들 ID 통일: 로그에 쓰던 com.jshyoun94.pocketspace로 맞춤
     bundleIdentifier: "com.jshyoun94.pocketspace",
     infoPlist: {
-      // 위치/미디어/카메라/마이크/음성인식 권한(두 파일의 내용을 병합)
       NSLocationWhenInUseUsageDescription:
         "지도를 표시하고 내 주변 공간을 찾기 위해 위치 접근 권한이 필요합니다.",
       NSPhotoLibraryUsageDescription:
@@ -44,7 +41,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         "PocketSpace가 마이크에 접근하도록 허용하시겠습니까?",
       NSSpeechRecognitionUsageDescription:
         "PocketSpace가 음성 인식 기능을 사용하도록 허용하시겠습니까?",
-      // 필요 시 Always 권한도 사용
+      // 필요 시 Always 권한도 사용 가능
       // NSLocationAlwaysAndWhenInUseUsageDescription:
       //   "백그라운드에서도 위치를 사용하여 서비스를 제공합니다.",
     },
@@ -58,7 +55,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
-    // 두 파일의 권한 리스트를 합쳐 정리
     permissions: [
       "android.permission.ACCESS_FINE_LOCATION",
       "android.permission.ACCESS_COARSE_LOCATION",
@@ -83,8 +79,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       "expo-speech-recognition",
       {
-        microphonePermission: "PocketSpace가 마이크에 접근하도록 허용하시겠습니까?",
-        speechRecognitionPermission: "PocketSpace가 음성 인식 기능을 사용하도록 허용하시겠습니까?",
+        microphonePermission:
+          "PocketSpace가 마이크에 접근하도록 허용하시겠습니까?",
+        speechRecognitionPermission:
+          "PocketSpace가 음성 인식 기능을 사용하도록 허용하시겠습니까?",
         androidSpeechServicePackages: ["com.google.android.googlequicksearchbox"],
       },
     ],
@@ -94,9 +92,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     typedRoutes: true,
   },
 
-  // 민감키는 .env에서 불러오도록 정리 (app.json에 하드코딩돼 있던 값은 제거)
   extra: {
-    EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY,
+    EXPO_PUBLIC_GOOGLE_PLACES_API_KEY:
+      process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY,
     EXPO_PUBLIC_NAVER_CLIENT_ID: process.env.EXPO_PUBLIC_NAVER_CLIENT_ID,
     EXPO_PUBLIC_NAVER_CLIENT_SECRET: process.env.EXPO_PUBLIC_NAVER_CLIENT_SECRET,
     EXPO_PUBLIC_NAVER_REDIRECT_URI: process.env.EXPO_PUBLIC_NAVER_REDIRECT_URI,

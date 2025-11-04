@@ -34,7 +34,7 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="pocketspace"/>
+        <data android:scheme="com.jshyoun94.pocketspace"/>
       </intent-filter>
     </activity>
   </application>

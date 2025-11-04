@@ -1,14 +1,16 @@
 // components/SideMenu.tsx
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import React from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
 import {
-    Image,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 
 type Props = {
@@ -18,6 +20,32 @@ type Props = {
 };
 
 export default function SideMenu({ visible, onClose, bannerUri }: Props) {
+  const router = useRouter();
+  const [userName, setUserName] = useState<string | null>(null);
+
+  // ✅ 로그인 상태 불러오기
+  useEffect(() => {
+    if (visible) {
+      (async () => {
+        const name = await AsyncStorage.getItem("loggedInUser");
+        setUserName(name);
+      })();
+    }
+  }, [visible]);
+
+  // ✅ 로그아웃
+  const handleLogout = async () => {
+    await AsyncStorage.removeItem("loggedInUser");
+    setUserName(null);
+    onClose();
+  };
+
+  // ✅ 로그인 클릭
+  const handleLoginPress = () => {
+    onClose();
+    router.push("/login");
+  };
+
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
       {/* 어두운 배경 */}
@@ -33,25 +61,35 @@ export default function SideMenu({ visible, onClose, bannerUri }: Props) {
             {/* 상단 프로필 영역 */}
             <View style={s.profileRow}>
               <View style={s.avatarDot} />
-              <Text style={s.userName}>정승현</Text>
-              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+
+              {/* ✅ 로그인 여부에 따라 표시 다르게 */}
+              {userName ? (
+                <>
+                  <Text style={s.userName}>{userName}</Text>
+                  <Pressable onPress={handleLogout}>
+                    <Text style={{ color: "#6B7280", marginLeft: 8 }}>로그아웃</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable onPress={handleLoginPress}>
+                  <Text style={[s.userName, { color: "#2563EB" }]}>로그인</Text>
+                </Pressable>
+              )}
+
               <View style={{ flex: 1 }} />
               <Ionicons name="notifications-outline" size={22} color="#6B7280" />
             </View>
-
-            {/* (요청) 대표 차량 설정하기 제거 → 여백만 정돈 */}
 
             {/* (요청) 내 공유주차장 → 내 공간 */}
             <Pressable style={s.primaryBtn}>
               <Text style={s.primaryBtnText}>내 공간</Text>
             </Pressable>
 
-            {/* 배너 (크기 동일 유지) */}
+            {/* 배너 */}
             <Image source={{ uri: bannerUri }} style={s.banner} />
 
             {/* 리스트 카드 */}
             <View style={s.card}>
-              {/* (요청) 아이콘/문구/단위 변경: 주차권 → 예약내역 / 0건 */}
               <Row
                 left={
                   <>
@@ -107,7 +145,7 @@ export default function SideMenu({ visible, onClose, bannerUri }: Props) {
               />
             </View>
 
-            {/* 하단 메뉴들 (텍스트만 유지, 스타일 동일) */}
+            {/* 하단 메뉴들 */}
             <View style={{ marginTop: 18, gap: 16 }}>
               <SectionTitle>공지사항</SectionTitle>
               <SectionTitle>결제, 충전, 적립</SectionTitle>
@@ -207,7 +245,7 @@ const s = StyleSheet.create({
 
   banner: {
     width: "100%",
-    height: 92, // 참고 스샷 비율에 맞춘 고정 높이
+    height: 92,
     borderRadius: 10,
     marginTop: 16,
   },
