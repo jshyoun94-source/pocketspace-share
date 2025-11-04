@@ -1,4 +1,4 @@
-package com.jsh.pocketspace
+package com.jshyoun94.pocketspace
 
 import android.app.Application
 import android.content.res.Configuration

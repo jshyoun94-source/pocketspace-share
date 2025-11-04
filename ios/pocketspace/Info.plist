@@ -54,9 +54,13 @@
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>지도를 표시하고 내 주변 공간을 찾기 위해 위치 접근 권한이 필요합니다.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
+    <string>PocketSpace가 마이크에 접근하도록 허용하시겠습니까?</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>공간 사진을 앨범에 저장하기 위해 사진 추가 권한이 필요합니다.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>공간 등록을 위해 사진 앨범 접근 권한이 필요합니다.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>PocketSpace가 음성 인식 기능을 사용하도록 허용하시겠습니까?</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

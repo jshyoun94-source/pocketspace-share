@@ -1,3 +1,4 @@
+// app/(tabs)/index.tsx
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
@@ -6,6 +7,7 @@ import { collection, getDocs } from "firebase/firestore";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Platform,
   Pressable,
@@ -13,11 +15,10 @@ import {
   View,
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
-import AddressPicker from "../../components/AddressPicker";
+import AddressPicker, { AddressPickerHandle } from "../../components/AddressPicker";
 import SideMenu from "../../components/SideMenu";
-import { db } from "../../firebase";
-// ✅ 음성검색 버튼 컴포넌트 추가
 import VoiceSearchButton from "../../components/VoiceSearchButton";
+import { db } from "../../firebase";
 
 type Space = {
   id: string;
@@ -33,6 +34,7 @@ type Space = {
 export default function HomeMap() {
   const router = useRouter();
   const mapRef = useRef<MapView>(null);
+  const addrRef = useRef<AddressPickerHandle>(null); // 음성결과 주입용 ref
 
   const [loading, setLoading] = useState(true);
   const [spaces, setSpaces] = useState<Space[]>([]);
@@ -43,19 +45,27 @@ export default function HomeMap() {
     longitudeDelta: 0.03,
   });
 
-  const [picked, setPicked] = useState<{ lat: number; lng: number; name?: string; formatted?: string } | null>(null);
+  const [picked, setPicked] = useState<{
+    lat: number;
+    lng: number;
+    name?: string;
+    formatted?: string;
+  } | null>(null);
+
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const banner = useMemo(
     () => ({
-      image: "https://dummyimage.com/1400x180/EEF3FF/2477FF&text=%EA%B3%B5%ED%95%AD+%EC%A3%BC%EC%B0%A8%EB%8C%80%ED%96%89+%EB%B0%B0%EB%84%88",
+      image:
+        "https://dummyimage.com/1400x180/EEF3FF/2477FF&text=%EA%B3%B5%ED%95%AD+%EC%A3%BC%EC%B0%A8%EB%8C%80%ED%96%89+%EB%B0%B0%EB%84%88",
       link: "https://example.com",
     }),
     []
   );
 
+  // 현재 위치로 초기 이동
   useEffect(() => {
     (async () => {
       try {
@@ -63,9 +73,14 @@ export default function HomeMap() {
         if (status === "granted") {
           const loc = await Location.getCurrentPositionAsync({});
           const { latitude, longitude } = loc.coords;
-          setRegion((r) => ({ ...r, latitude, longitude }));
+          setRegion((r: Region) => ({ ...r, latitude, longitude }));
           mapRef.current?.animateToRegion(
-            { latitude, longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 },
+            {
+              latitude,
+              longitude,
+              latitudeDelta: 0.02,
+              longitudeDelta: 0.02,
+            },
             600
           );
         }
@@ -73,6 +88,7 @@ export default function HomeMap() {
     })();
   }, []);
 
+  // Firestore + 로컬 병합 로드
   const loadSpaces = useCallback(async () => {
     setLoading(true);
     try {
@@ -147,25 +163,68 @@ export default function HomeMap() {
       350
     );
 
-  // ✅ 음성 인식 결과 처리: 주소/장소명을 좌표로 변환하여 지도 이동 + 마커 표시
-  const handleVoiceResult = useCallback(async (spoken: string) => {
-    const text = (spoken || "").trim();
-    if (!text) return;
-
-    try {
-      // 기기/플랫폼 지오코더 이용 (간단 & 빠름)
-      const results = await Location.geocodeAsync(text);
-      if (results?.length) {
-        const { latitude, longitude } = results[0];
-        setPicked({ lat: latitude, lng: longitude, name: text, formatted: text });
-        moveTo(latitude, longitude);
-      } else {
-        console.warn("지오코딩 결과 없음:", text);
-      }
-    } catch (err) {
-      console.warn("지오코딩 실패:", err);
+  // AddressPicker 선택 시 지도 이동/마커 갱신
+  const handlePicked = (p: {
+    lat?: number;
+    lng?: number;
+    name?: string;
+    formatted_address?: string;
+  }) => {
+    if (p.lat && p.lng) {
+      setPicked({
+        lat: p.lat,
+        lng: p.lng,
+        name: p.name,
+        formatted: p.formatted_address,
+      });
+      moveTo(p.lat, p.lng);
+    } else {
+      Alert.alert("위치 없음", "선택한 결과에 좌표가 없어요.");
     }
-  }, []);
+  };
+
+  // 🔧 음성 인식 결과 처리(수정 포인트)
+  const handleVoiceResult = async (finalText: string) => {
+    if (!finalText?.trim()) return;
+    const q = finalText.trim();
+
+    // ✅ 추가된 부분: 입력창에도 음성결과 반영
+    addrRef.current?.forceQueryUpdate?.(q);
+
+    // 1) AddressPicker에게 위임 → 자동완성 첫 항목 선택 및 입력창 채우기
+    try {
+      await addrRef.current?.setQueryAndSearch?.(q);
+      return; // ✅ 여기서 종료: 입력창이 채워지고 onPicked까지 호출됨
+    } catch {
+      // 아래 폴백으로 진행
+    }
+
+    // 2) 폴백: Geocoding API로 직접 이동(입력창은 유지)
+    try {
+      const key = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+      if (!key) {
+        Alert.alert("API 키 누락", "Google Places API 키(.env)가 필요합니다.");
+        return;
+      }
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
+        q
+      )}&key=${key}&language=ko&region=kr`;
+      const res = await fetch(url);
+      const json = await res.json();
+
+      if (json.status === "OK" && json.results?.length) {
+        const loc = json.results[0].geometry.location;
+        const formatted = json.results[0].formatted_address as string;
+        setPicked({ lat: loc.lat, lng: loc.lng, name: q, formatted });
+        moveTo(loc.lat, loc.lng);
+      } else {
+        Alert.alert("검색 결과 없음", `“${q}”에 해당하는 위치를 찾지 못했어요.`);
+      }
+    } catch (e) {
+      console.warn("[STT] geocode fallback error:", e);
+      Alert.alert("음성 검색 오류", "위치로 이동 중 문제가 발생했어요.");
+    }
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -239,32 +298,24 @@ export default function HomeMap() {
           <Pressable onPress={() => setMenuOpen(true)} style={{ padding: 6 }}>
             <Ionicons name="menu" size={20} color="#333" />
           </Pressable>
+
           <View style={{ flex: 1, marginHorizontal: 8 }}>
             <AddressPicker
+              ref={addrRef}
               placeholder="목적지 또는 주소 검색"
               coordsBias={{
                 lat: region.latitude,
                 lng: region.longitude,
                 radius: 30000,
               }}
-              onPicked={(p) => {
-                if (p.lat && p.lng) {
-                  setPicked({
-                    lat: p.lat,
-                    lng: p.lng,
-                    name: p.name,
-                    // AddressPicker는 formatted_address를 내려주는 구조임
-                    // (네 버전에서 속성명이 다르면 p.formatted 등으로 맞춰줘)
-                    formatted: (p as any).formatted_address ?? (p as any).formatted,
-                  });
-                  moveTo(p.lat, p.lng);
-                }
-              }}
+              onPicked={handlePicked}
             />
           </View>
 
-          {/* 🔄 기존 Ionicons 마이크 → 음성검색 컴포넌트로 교체 */}
-          <VoiceSearchButton onResult={handleVoiceResult} lang="ko-KR" />
+          {/* 🎤 음성검색 버튼 */}
+          <View style={{ padding: 4 }}>
+            <VoiceSearchButton onResult={handleVoiceResult} />
+          </View>
 
           <Pressable
             onPress={() => setFilterOpen(true)}
@@ -283,7 +334,7 @@ export default function HomeMap() {
         </View>
       </View>
 
-      {/* 오른쪽 버튼 */}
+      {/* 오른쪽 퀵버튼 */}
       <View style={{ position: "absolute", right: 14, top: 140, gap: 10 }}>
         {["지금", "오늘", "내일"].map((t, i) => (
           <Pressable
@@ -343,12 +394,12 @@ export default function HomeMap() {
         </View>
       </View>
 
-      {/* 내공간등록 버튼 (살짝 작게 & 위치 조정) */}
+      {/* 내공간등록 버튼 */}
       <Pressable
         onPress={() => router.push("/space/new")}
         style={{
           position: "absolute",
-          bottom: 170, // 카드 위보다 약간 띄움
+          bottom: 170,
           alignSelf: "center",
           backgroundColor: "#2477ff",
           borderRadius: 26,
@@ -365,7 +416,7 @@ export default function HomeMap() {
         </Text>
       </Pressable>
 
-      {/* 하단 흰색 카드 - 높이 축소 */}
+      {/* 하단 카드 */}
       <View style={{ position: "absolute", left: 12, right: 12, bottom: 16 }}>
         <View
           style={{
@@ -379,7 +430,6 @@ export default function HomeMap() {
             elevation: 6,
           }}
         >
-          {/* 버튼 3개 */}
           <View
             style={{
               flexDirection: "row",
@@ -401,10 +451,8 @@ export default function HomeMap() {
             />
           </View>
 
-          {/* 구분선 */}
           <View style={{ height: 1, backgroundColor: "#E5E7EB", marginVertical: 8 }} />
 
-          {/* 배너 높이 축소 */}
           <View style={{ borderRadius: 12, overflow: "hidden" }}>
             <Image
               source={{ uri: banner.image }}
