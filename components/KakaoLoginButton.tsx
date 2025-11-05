@@ -1,88 +1,78 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as AuthSession from "expo-auth-session";
-import * as WebBrowser from "expo-web-browser";
-import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Text, TouchableOpacity } from "react-native";
-import Toast from "react-native-toast-message";
+import { login } from "@react-native-seoul/kakao-login";
+import { signInWithCustomToken } from "firebase/auth";
+import React from "react";
+import { ActivityIndicator, Alert, Text, TouchableOpacity } from "react-native";
+import { auth } from "../firebase";
 
-WebBrowser.maybeCompleteAuthSession();
-
-const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY!;
-const discovery = {
-  authorizationEndpoint: "https://kauth.kakao.com/oauth/authorize",
-  tokenEndpoint: "https://kauth.kakao.com/oauth/token",
-};
+const FUNCTIONS_ENDPOINT = process.env.EXPO_PUBLIC_FUNCTIONS_ENDPOINT;
 
 export default function KakaoLoginButton() {
-  const [loading, setLoading] = useState(false);
-  const redirectUri = useMemo(
-    () => AuthSession.makeRedirectUri({ scheme: "com.jshyoun94.pocketspace" }),
-    []
-  );
-  const state = useMemo(() => Math.random().toString(36).slice(2), []);
-  const [request, response, promptAsync] = AuthSession.useAuthRequest(
-    {
-      clientId: KAKAO_REST_API_KEY,
-      redirectUri,
-      responseType: AuthSession.ResponseType.Code,
-      scopes: ["profile_nickname"],
-      state,
-    },
-    discovery
-  );
+  const [loading, setLoading] = React.useState(false);
 
-  useEffect(() => {
-    const fetchProfile = async (code: string) => {
-      try {
-        setLoading(true);
-        const res = await fetch(discovery.tokenEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: `grant_type=authorization_code&client_id=${KAKAO_REST_API_KEY}&redirect_uri=${redirectUri}&code=${code}`,
-        });
-        const token = await res.json();
+  const handleKakao = async () => {
+    try {
+      setLoading(true);
 
-        if (!token.access_token) throw new Error("토큰 발급 실패");
-
-        const profRes = await fetch("https://kapi.kakao.com/v2/user/me", {
-          headers: { Authorization: `Bearer ${token.access_token}` },
-        });
-        const prof = await profRes.json();
-        const name = prof?.kakao_account?.profile?.nickname ?? "카카오 사용자";
-
-        await AsyncStorage.setItem("loggedInUser", name);
-        Toast.show({ type: "success", text1: `${name}님 환영합니다!` });
-      } catch (e: any) {
-        Toast.show({ type: "error", text1: "카카오 로그인 실패", text2: String(e?.message ?? e) });
-      } finally {
+      // 1) 카카오 SDK 로그인
+      const kakao = await login(); // { accessToken, idToken?, ... }
+      if (!kakao?.accessToken) {
+        console.error("❌ Kakao: accessToken 없음", kakao);
+        Alert.alert("카카오 로그인 실패", "accessToken을 받지 못했습니다.");
         setLoading(false);
+        return;
       }
-    };
 
-    if (response?.type === "success") {
-      const code = (response as any)?.params?.code;
-      if (code) fetchProfile(code);
+      // 2) 서버(Function)에서 custom token 발급
+      if (!FUNCTIONS_ENDPOINT) {
+        console.error("❌ FUNCTIONS_ENDPOINT 미설정");
+        Alert.alert("설정 오류", "EXPO_PUBLIC_FUNCTIONS_ENDPOINT가 필요합니다.");
+        setLoading(false);
+        return;
+      }
+
+      const res = await fetch(`${FUNCTIONS_ENDPOINT}/auth/kakao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken: kakao.accessToken }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data?.customToken) {
+        console.error("❌ customToken 수신 실패:", data);
+        Alert.alert("서버 오류", "카카오 토큰 검증/발급에 실패했습니다.");
+        setLoading(false);
+        return;
+      }
+
+      // 3) Firebase 커스텀 토큰으로 로그인
+      const cred = await signInWithCustomToken(auth, data.customToken);
+      console.log("✅ Kakao -> Firebase 성공:", cred.user.uid);
+    } catch (e) {
+      console.error("❌ Kakao 로그인 전체 실패:", e);
+      Alert.alert("로그인 실패", "카카오 로그인 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
     }
-  }, [response]);
+  };
 
   return (
     <TouchableOpacity
-      onPress={() => promptAsync()}
+      onPress={handleKakao}
       disabled={loading}
       style={{
         backgroundColor: "#FEE500",
+        paddingVertical: 12,
+        paddingHorizontal: 16,
         borderRadius: 8,
-        padding: 12,
         alignItems: "center",
         justifyContent: "center",
-        width: 220,
-        opacity: loading ? 0.7 : 1,
+        minWidth: 260,
       }}
     >
       {loading ? (
-        <ActivityIndicator color="#000" />
+        <ActivityIndicator />
       ) : (
-        <Text style={{ color: "#000", fontWeight: "bold" }}>카카오로 로그인</Text>
+        <Text style={{ fontWeight: "bold" }}>카카오로 계속</Text>
       )}
     </TouchableOpacity>
   );
