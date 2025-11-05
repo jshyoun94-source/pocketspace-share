@@ -1,0 +1,94 @@
+// utils/authNaver.ts
+import { onAuthStateChanged, signInWithCustomToken, updateProfile } from "firebase/auth";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { auth, db } from "../firebase";
+
+type NaverProfile = {
+  id?: string;
+  name?: string | null;
+  email?: string | null;
+  profile_image?: string | null;
+  [k: string]: any;
+};
+
+type TokenResponse = {
+  customToken?: string;
+  profile?: NaverProfile;
+  error?: string;
+};
+
+const RAW = process.env.EXPO_PUBLIC_FUNCTIONS_ENDPOINT as string | undefined;
+// 끝의 슬래시가 중복되면 404 날 수 있어 정규화
+const API_BASE = (RAW ?? "").replace(/\/+$/, "");
+
+/** auth.currentUser가 세팅될 때까지 잠깐 대기 */
+function waitForAuthUser(timeoutMs = 5000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      unsub();
+      reject(new Error("로그인 실패 (uid 타임아웃)"));
+    }, timeoutMs);
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u?.uid) {
+        clearTimeout(t);
+        unsub();
+        resolve(u.uid);
+      }
+    });
+  });
+}
+
+export async function signInWithNaverAccessToken(accessToken: string) {
+  if (!API_BASE) throw new Error("FUNCTIONS endpoint가 설정되지 않았습니다. (.env 확인)");
+
+  // 1) Functions에 커스텀 토큰 요청
+  let data: TokenResponse;
+  try {
+    const res = await fetch(`${API_BASE}/auth/naver`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken }),
+    });
+    data = (await res.json()) as TokenResponse;
+    if (!res.ok) {
+      throw new Error(data?.error || `서버 오류 (HTTP ${res.status})`);
+    }
+  } catch (e: any) {
+    throw new Error(`토큰 교환 실패: ${e?.message ?? e}`);
+  }
+
+  const { customToken, profile = {} } = data;
+  if (!customToken) throw new Error("커스텀 토큰이 없습니다.");
+
+  // 2) Firebase Auth 로그인
+  await signInWithCustomToken(auth, customToken);
+
+  // 2.5) auth.currentUser 설정될 때까지 대기 (플랫폼/네트워크에 따라 약간 지연될 수 있음)
+  const uid = auth.currentUser?.uid ?? (await waitForAuthUser());
+
+  // 3) Firestore upsert
+  await setDoc(
+    doc(db, "users", uid),
+    {
+      provider: "naver",
+      naverId: profile.id ?? null,
+      name: profile.name ?? null,
+      email: profile.email ?? null,
+      photoURL: profile.profile_image ?? null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  // 4) Firebase Auth 프로필 동기화 (선택)
+  if (auth.currentUser) {
+    await updateProfile(auth.currentUser, {
+      displayName: profile.name ?? undefined,
+      photoURL: profile.profile_image ?? undefined,
+    });
+  }
+
+  console.log("✅ Naver 로그인 & Firestore 저장 완료:", uid);
+  return { uid, profile };
+}

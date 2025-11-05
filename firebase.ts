@@ -1,21 +1,24 @@
 // firebase.ts
-import { initializeApp } from "firebase/app";
-import { getFirestore, initializeFirestore } from "firebase/firestore";
+import { getApp, getApps, initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
-const firebaseConfig = {
-    apiKey: "AIzaSyD1eDPDwnI7TR0vahoeMltu2LVoNFVUfdw",
-    authDomain: "tangential-sled-352810.firebaseapp.com",
-    projectId: "tangential-sled-352810",
-    storageBucket: "tangential-sled-352810.firebasestorage.app",
-    messagingSenderId: "960074559622",
-    appId: "1:960074559622:web:0833ffd19e237f4754e107"
-  };
+const cfg = {
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+};
 
-export const firebaseApp = initializeApp(firebaseConfig);
+// 필수값 점검(누락 시 바로 throw)
+for (const [k, v] of Object.entries(cfg)) {
+  if (!v) throw new Error(`Firebase config missing: ${k}`);
+}
 
-initializeFirestore(firebaseApp, {
-  experimentalAutoDetectLongPolling: true,
-  // experimentalForceLongPolling: true, // 필요하면 주석 해제
-});
+const app = getApps().length ? getApp() : initializeApp(cfg);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
-export const db = getFirestore(firebaseApp);
+export { app, auth, db };
