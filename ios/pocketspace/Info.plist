@@ -28,12 +28,22 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>com.jshyoun94.pocketspace</string>
+          <string>kakao729b6dde9f53eae792432cd484171657</string>
           <string>com.jshyoun94.pocketspace</string>
         </array>
       </dict>
     </array>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <key>KAKAO_APP_KEY</key>
+    <string>729b6dde9f53eae792432cd484171657</string>
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+      <string>kakaokompassauth</string>
+      <string>kakaolink</string>
+      <string>kakaotalk</string>
+      <string>storykompassauth</string>
+    </array>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
     <key>LSRequiresIPhoneOS</key>
