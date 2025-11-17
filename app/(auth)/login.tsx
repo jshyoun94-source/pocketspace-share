@@ -16,8 +16,8 @@ export default function LoginScreen() {
     try {
       setKakaoLoading(true);
       await signInWithKakao();
-      // TODO: 로그인 성공 시 라우팅 등 처리
-      // router.replace("/(tabs)");
+      // ✅ 카카오 로그인 성공 후 탭 루트로 이동
+      router.replace("/(tabs)");
     } finally {
       setKakaoLoading(false);
     }
