@@ -1,19 +1,19 @@
-// utils/authNaver.ts
+// utils/authGoogle.ts
 import { onAuthStateChanged, signInWithCustomToken, updateProfile } from "firebase/auth";
 import { arrayUnion, doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
 
-type NaverProfile = {
+type GoogleProfile = {
   id?: string;
   name?: string | null;
   email?: string | null;
-  profile_image?: string | null;
+  picture?: string | null;
   [k: string]: any;
 };
 
 type TokenResponse = {
   customToken?: string;
-  profile?: NaverProfile;
+  profile?: GoogleProfile;
   error?: string;
 };
 
@@ -38,13 +38,13 @@ function waitForAuthUser(timeoutMs = 5000): Promise<string> {
   });
 }
 
-export async function signInWithNaverAccessToken(accessToken: string) {
+export async function signInWithGoogleAccessToken(accessToken: string) {
   if (!API_BASE) throw new Error("FUNCTIONS endpoint가 설정되지 않았습니다. (.env 확인)");
 
   // 1) Functions에 커스텀 토큰 요청
   let data: TokenResponse;
   try {
-    const res = await fetch(`${API_BASE}/auth/naver`, {
+    const res = await fetch(`${API_BASE}/auth/google`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accessToken }),
@@ -70,25 +70,26 @@ export async function signInWithNaverAccessToken(accessToken: string) {
   await setDoc(
     doc(db, "users", uid),
     {
-      // providers 배열에 "naver" 추가 (이미 있으면 중복되지 않음)
-      providers: arrayUnion("naver"),
-      naverId: profile.id ?? null,
+      // providers 배열에 "google" 추가 (이미 있으면 중복되지 않음)
+      providers: arrayUnion("google"),
+      googleId: profile.id ?? null,
       name: profile.name ?? null,
       email: profile.email ?? null,
-      photoURL: profile.profile_image ?? null,
+      photoURL: profile.picture ?? null,
       updatedAt: serverTimestamp(),
     },
     { merge: true }
   );
 
-  // 4) Firebase Auth 프로필 동기화 (선택)
+  // 4) Firebase Auth 프로필 동기화
   if (auth.currentUser) {
     await updateProfile(auth.currentUser, {
       displayName: profile.name ?? undefined,
-      photoURL: profile.profile_image ?? undefined,
+      photoURL: profile.picture ?? undefined,
     });
   }
 
-  console.log("✅ Naver 로그인 & Firestore 저장 완료:", uid);
+  console.log("✅ Google 로그인 & Firestore 저장 완료:", uid);
   return { uid, profile };
 }
+

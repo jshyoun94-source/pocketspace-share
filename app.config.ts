@@ -147,6 +147,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY,
       EXPO_PUBLIC_KAKAO_REDIRECT_URI:
         process.env.EXPO_PUBLIC_KAKAO_REDIRECT_URI,
+
+      // ✅ Google OAuth 설정
+      EXPO_PUBLIC_GOOGLE_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+      EXPO_PUBLIC_GOOGLE_REDIRECT_URI: process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI,
     },
   };
 };

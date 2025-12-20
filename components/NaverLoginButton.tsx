@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Text, TouchableOpacity } from "react-native";
+import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
 import Toast from "react-native-toast-message";
 import { signInWithNaverAccessToken } from "../utils/authNaver";
 
@@ -101,7 +101,23 @@ export default function NaverLoginButton() {
       {loading ? (
         <ActivityIndicator color="#fff" />
       ) : (
-        <Text style={{ color: "#fff", fontWeight: "bold" }}>네이버로 로그인</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 3,
+              backgroundColor: "#fff",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ color: "#1EC800", fontWeight: "bold", fontSize: 14 }}>
+              N
+            </Text>
+          </View>
+          <Text style={{ color: "#fff", fontWeight: "bold" }}>네이버 로그인</Text>
+        </View>
       )}
     </TouchableOpacity>
   );

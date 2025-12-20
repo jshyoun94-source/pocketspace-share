@@ -2,6 +2,7 @@
 import React from "react";
 import {
   ActivityIndicator,
+  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -30,14 +31,20 @@ export default function KakaoLoginButton({
       accessibilityRole="button"
       accessibilityLabel="카카오로 로그인"
     >
-      <View style={styles.row}>
-        {loading ? (
-          <ActivityIndicator />
-        ) : (
-          <Text style={styles.kakaoIcon}></Text>
-        )}
-        <Text style={styles.label}>카카오로 로그인</Text>
-      </View>
+      {loading ? (
+        <ActivityIndicator color="#000" />
+      ) : (
+        <View style={styles.row}>
+          <Image
+            source={{
+              uri: "https://t1.kakaocdn.net/kakaocorp/kakaocorp/admin/5ab4c57d0178000001/images/default/logo_og.png",
+            }}
+            style={styles.kakaoIcon}
+            resizeMode="contain"
+          />
+          <Text style={styles.label}>카카오 로그인</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -67,12 +74,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   kakaoIcon: {
-    fontSize: 18,
+    width: 20,
+    height: 20,
   },
   label: {
-    fontSize: 16,
-    fontWeight: "600",
-    // 필요하면 여기서 color도 네이버/구글에 맞춰 조절 가능
-    // color: "#000",
+    fontWeight: "bold",
+    // 네이버/구글과 동일한 기본 fontSize 사용 (명시하지 않으면 기본값)
+    color: "#000",
   },
 });
