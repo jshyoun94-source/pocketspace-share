@@ -2,16 +2,20 @@
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-  Image,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    Image,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
+import { auth, db } from "../firebase";
+import useKakaoLogin from "../hooks/useKakaoLogin";
 
 type Props = {
   visible: boolean;
@@ -22,22 +26,89 @@ type Props = {
 export default function SideMenu({ visible, onClose, bannerUri }: Props) {
   const router = useRouter();
   const [userName, setUserName] = useState<string | null>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const { signOutKakao } = useKakaoLogin();
 
-  // ✅ 로그인 상태 불러오기
-  useEffect(() => {
-    if (visible) {
-      (async () => {
+  // ✅ 로그인 상태 및 닉네임 불러오기
+  const loadUserNickname = async () => {
+    if (auth.currentUser) {
+      // Firestore에서 닉네임 가져오기
+      try {
+        const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+        const userData = userDoc.data();
+        // 닉네임이 있으면 닉네임, 없으면 기존 name 사용
+        const nickname = userData?.nickname || userData?.name || null;
+        setUserName(nickname);
+      } catch (e) {
+        console.warn("닉네임 불러오기 실패:", e);
+        // 폴백: AsyncStorage에서 가져오기
         const name = await AsyncStorage.getItem("loggedInUser");
         setUserName(name);
-      })();
+      }
+    } else {
+      setUserName(null);
     }
+  };
+
+  useEffect(() => {
+    if (visible) {
+      loadUserNickname();
+    }
+  }, [visible]);
+
+  // ✅ auth 상태 변경 감지
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, () => {
+      if (visible) {
+        loadUserNickname();
+      }
+    });
+    return unsubscribe;
   }, [visible]);
 
   // ✅ 로그아웃
   const handleLogout = async () => {
-    await AsyncStorage.removeItem("loggedInUser");
-    setUserName(null);
-    onClose();
+    try {
+      // 현재 사용자의 provider 확인
+      let isKakaoUser = false;
+      if (auth.currentUser) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+          const userData = userDoc.data();
+          isKakaoUser = userData?.providers?.includes("kakao") || false;
+        } catch (e) {
+          console.warn("provider 확인 실패:", e);
+        }
+      }
+      
+      // 카카오 로그인인 경우 카카오 로그아웃 (이미 auth.signOut() 포함)
+      if (isKakaoUser) {
+        try {
+          await signOutKakao();
+        } catch (e) {
+          console.warn("카카오 로그아웃 실패, Firebase 로그아웃만 진행:", e);
+          await signOut(auth);
+        }
+      } else {
+        // 그 외 provider는 Firebase Auth 로그아웃만
+        await signOut(auth);
+      }
+      
+      // AsyncStorage 정리
+      await AsyncStorage.removeItem("loggedInUser");
+      
+      // 상태 초기화
+      setUserName(null);
+      setShowSettingsModal(false);
+      onClose();
+    } catch (e: any) {
+      console.error("로그아웃 실패:", e);
+      // 에러가 발생해도 상태는 초기화
+      await AsyncStorage.removeItem("loggedInUser");
+      setUserName(null);
+      setShowSettingsModal(false);
+      onClose();
+    }
   };
 
   // ✅ 로그인 클릭
@@ -64,15 +135,10 @@ export default function SideMenu({ visible, onClose, bannerUri }: Props) {
 
               {/* ✅ 로그인 여부에 따라 표시 다르게 */}
               {userName ? (
-                <>
-                  <Text style={s.userName}>{userName}</Text>
-                  <Pressable onPress={handleLogout}>
-                    <Text style={{ color: "#6B7280", marginLeft: 8 }}>로그아웃</Text>
-                  </Pressable>
-                </>
+                <Text style={s.userName}>{userName}</Text>
               ) : (
                 <Pressable onPress={handleLoginPress}>
-                  <Text style={[s.userName, { color: "#2563EB" }]}>로그인</Text>
+                  <Text style={[s.userName, { color: "#2563EB" }]}>로그인하기</Text>
                 </Pressable>
               )}
 
@@ -81,7 +147,13 @@ export default function SideMenu({ visible, onClose, bannerUri }: Props) {
             </View>
 
             {/* (요청) 내 공유주차장 → 내 공간 */}
-            <Pressable style={s.primaryBtn}>
+            <Pressable
+              style={s.primaryBtn}
+              onPress={() => {
+                onClose();
+                router.push("/my-spaces");
+              }}
+            >
               <Text style={s.primaryBtnText}>내 공간</Text>
             </Pressable>
 
@@ -143,6 +215,22 @@ export default function SideMenu({ visible, onClose, bannerUri }: Props) {
                 }
                 right={<Count text="0 P" />}
               />
+
+              <Divider />
+
+              <Row
+                left={
+                  <>
+                    <Ionicons name="star-outline" size={16} color="#374151" />
+                    <Text style={s.rowText}>즐겨찾기</Text>
+                  </>
+                }
+                right={<Ionicons name="chevron-forward" size={16} color="#9CA3AF" />}
+                onPress={() => {
+                  onClose();
+                  router.push("/favorites");
+                }}
+              />
             </View>
 
             {/* 하단 메뉴들 */}
@@ -156,7 +244,9 @@ export default function SideMenu({ visible, onClose, bannerUri }: Props) {
                 </View>
               </SectionTitle>
               <SectionTitle>제휴 문의</SectionTitle>
-              <SectionTitle>환경설정</SectionTitle>
+              <Pressable onPress={() => setShowSettingsModal(true)}>
+                <SectionTitle>환경설정</SectionTitle>
+              </Pressable>
             </View>
 
             <Pressable style={s.footerHelp}>
@@ -166,20 +256,115 @@ export default function SideMenu({ visible, onClose, bannerUri }: Props) {
           </ScrollView>
         </View>
       </View>
+
+      {/* 환경설정 메뉴 패널 */}
+      {showSettingsModal && (
+        <View style={s.panelWrap} pointerEvents="box-none">
+          <Pressable style={s.dim} onPress={() => setShowSettingsModal(false)} />
+          <View style={s.panel}>
+            <ScrollView
+              contentContainerStyle={{ paddingBottom: 32 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* 상단 헤더 */}
+              <View style={s.profileRow}>
+                <Pressable
+                  onPress={() => setShowSettingsModal(false)}
+                  style={{ padding: 4 }}
+                >
+                  <Ionicons name="chevron-back" size={24} color="#111827" />
+                </Pressable>
+                <Text style={[s.userName, { marginLeft: 8 }]}>환경설정</Text>
+                <View style={{ flex: 1 }} />
+              </View>
+
+              {/* 환경설정 메뉴 리스트 */}
+              <View style={{ marginTop: 20 }}>
+                {userName ? (
+                  <>
+                    {/* 알림 설정 (추후 추가 예정) */}
+                    <Pressable style={s.settingsRow}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                        <Ionicons name="notifications-outline" size={20} color="#374151" />
+                        <Text style={s.settingsRowText}>알림 설정</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                    </Pressable>
+
+                    <View style={s.divider} />
+
+                    {/* 로그아웃 */}
+                    <Pressable
+                      onPress={handleLogout}
+                      style={s.settingsRow}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                        <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+                        <Text style={[s.settingsRowText, { color: "#EF4444" }]}>
+                          로그아웃하기
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                    </Pressable>
+                  </>
+                ) : (
+                  <View style={{ padding: 20, alignItems: "center" }}>
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        color: "#6B7280",
+                        marginBottom: 20,
+                        textAlign: "center",
+                      }}
+                    >
+                      로그인 후 이용 가능합니다.
+                    </Text>
+                    <Pressable
+                      onPress={() => {
+                        setShowSettingsModal(false);
+                        onClose();
+                        router.push("/(auth)/login");
+                      }}
+                      style={{
+                        backgroundColor: "#2477ff",
+                        borderRadius: 12,
+                        paddingVertical: 14,
+                        paddingHorizontal: 24,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: "#fff",
+                          fontSize: 16,
+                          fontWeight: "700",
+                        }}
+                      >
+                        로그인하러 가기
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      )}
     </Modal>
   );
 }
 
 /* 작은 프리미티브들 */
-function Row({ left, right }: { left: React.ReactNode; right?: React.ReactNode }) {
+function Row({ left, right, onPress }: { left: React.ReactNode; right?: React.ReactNode; onPress?: () => void }) {
   return (
-    <Pressable style={s.row}>
+    <Pressable style={s.row} onPress={onPress}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
         {left}
       </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         {right}
-        <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+        {!right && <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />}
       </View>
     </Pressable>
   );
@@ -285,4 +470,17 @@ const s = StyleSheet.create({
     gap: 8,
   },
   footerHelpText: { color: "#94A3B8", fontSize: 15 },
+
+  settingsRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  settingsRowText: {
+    fontSize: 16,
+    color: "#111827",
+  },
 });
+

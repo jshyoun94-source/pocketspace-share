@@ -17,7 +17,11 @@ const discovery = {
   tokenEndpoint: "https://nid.naver.com/oauth2.0/token",
 };
 
-export default function NaverLoginButton() {
+type Props = {
+  onSuccess?: () => void | Promise<void>;
+};
+
+export default function NaverLoginButton({ onSuccess }: Props) {
   const [loading, setLoading] = useState(false);
   const redirectUri = useMemo(() => NAVER_REDIRECT_URI, []);
   const state = useMemo(() => Math.random().toString(36).slice(2), []);
@@ -63,6 +67,11 @@ export default function NaverLoginButton() {
 
         await AsyncStorage.setItem("loggedInUser", name);
         Toast.show({ type: "success", text1: `${name}님 환영합니다!` });
+        
+        // 로그인 성공 콜백 호출
+        if (onSuccess) {
+          await onSuccess();
+        }
       } catch (e: any) {
         Toast.show({
           type: "error",

@@ -1,0 +1,17 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // spaces 폴더: 사용자별로 자신의 이미지만 업로드/읽기 가능
+    match /spaces/{userId}/{allPaths=**} {
+      // 읽기: 인증된 사용자는 모든 공간 이미지를 읽을 수 있음
+      allow read: if request.auth != null;
+      // 쓰기: 인증된 사용자가 자신의 폴더에만 이미지를 업로드할 수 있음
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // 다른 경로는 기본적으로 거부
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -126,8 +126,7 @@ export default function useKakaoLogin() {
 
       console.log("LOG  ✅ Firebase 카카오 로그인 & Firestore 저장 완료:", uid);
 
-      Alert.alert("로그인 성공", "카카오 계정으로 로그인되었습니다.");
-
+      // Alert 제거 - 로그인 화면에서 처리
       return auth.currentUser ?? undefined;
     } catch (error: any) {
       console.log("LOG  ❌ 카카오 로그인 전체 플로우 에러:", error);

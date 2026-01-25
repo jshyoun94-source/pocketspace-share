@@ -1,22 +1,99 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // users 컬렉션: 인증된 사용자가 자신의 문서를 읽고 쓸 수 있음
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isChatMember(data) {
+      return signedIn()
+        && (request.auth.uid == data.ownerId || request.auth.uid == data.customerId);
+    }
+
+    function parentChat(chatId) {
+      return get(/databases/$(database)/documents/chats/$(chatId));
+    }
+
+    // -------------------------
+    // users
+    // -------------------------
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // 채팅에서 상대 닉네임 읽기 필요 → 로그인만 하면 read OK
+      allow read: if signedIn();
+      allow create, update, delete: if isSelf(userId);
+
+      // -------------------------
+      // users/{userId}/favorites (즐겨찾기)
+      // -------------------------
+      match /favorites/{favoriteId} {
+        // 본인만 읽기/쓰기 가능
+        allow read, write: if isSelf(userId);
+      }
     }
-    
-    // 다른 컬렉션들도 필요에 따라 추가
-    // 예: spaces 컬렉션
+
+    // -------------------------
+    // spaces
+    // -------------------------
     match /spaces/{spaceId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid;
+
+      allow update, delete: if signedIn()
+        && resource.data.ownerId == request.auth.uid;
     }
-    
-    // 모든 다른 문서는 기본적으로 거부
+
+    // -------------------------
+    // chats
+    // -------------------------
+    match /chats/{chatId} {
+
+      // ✅ 중요:
+      // getDoc(단건)는 "없어도" 허용해야 존재 여부 확인이 가능함
+      allow get: if signedIn() && (resource == null || isChatMember(resource.data));
+
+      // list(쿼리)는 제한(지금 chat.tsx는 list 안 쓰지만, 안전상 닫아둠)
+      allow list: if false;
+
+      // 생성: owner/customer 중 한 명이 본인일 때
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(['ownerId','customerId','spaceId'])
+        && (request.auth.uid == request.resource.data.ownerId ||
+            request.auth.uid == request.resource.data.customerId);
+
+      // 수정/삭제: 참여자만
+      allow update, delete: if resource != null && isChatMember(resource.data);
+
+      // -------------------------
+      // messages
+      // -------------------------
+      match /messages/{messageId} {
+        allow get, list: if parentChat(chatId).data != null
+          && isChatMember(parentChat(chatId).data);
+
+        // create:
+        // - 참여자
+        // - senderId가 본인이거나 "system" 허용
+        allow create: if parentChat(chatId).data != null
+          && isChatMember(parentChat(chatId).data)
+          && request.resource.data.keys().hasAll(['text','senderId','createdAt'])
+          && (
+            request.resource.data.senderId == request.auth.uid ||
+            request.resource.data.senderId == "system"
+          );
+
+        allow update, delete: if false;
+      }
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-
