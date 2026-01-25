@@ -25,7 +25,11 @@ const GOOGLE_REDIRECT_URI = `${FUNCTIONS_ENDPOINT}/auth/google/callback`;
 console.log("🔍 GOOGLE_REDIRECT_URI:", GOOGLE_REDIRECT_URI);
 console.log("🔍 FUNCTIONS_ENDPOINT:", FUNCTIONS_ENDPOINT);
 
-export default function GoogleLoginButton() {
+type Props = {
+  onSuccess?: () => void | Promise<void>;
+};
+
+export default function GoogleLoginButton({ onSuccess }: Props) {
   const [loading, setLoading] = useState(false);
   const [processingCode, setProcessingCode] = useState<string | null>(null); // 중복 요청 방지
   const redirectUri = useMemo(() => GOOGLE_REDIRECT_URI, []);
@@ -119,6 +123,11 @@ export default function GoogleLoginButton() {
       const name = profile?.name ?? "Google 사용자";
       await AsyncStorage.setItem("loggedInUser", name);
       Toast.show({ type: "success", text1: `${name}님 환영합니다!` });
+      
+      // 로그인 성공 콜백 호출
+      if (onSuccess) {
+        await onSuccess();
+      }
     } catch (e: any) {
       console.log("❌ 구글 로그인 에러:", e);
       Toast.show({

@@ -1,20 +1,20 @@
 import React, {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
+    forwardRef,
+    useEffect,
+    useImperativeHandle,
+    useRef,
+    useState,
 } from "react";
 import {
-  ActivityIndicator,
-  FlatList,
-  Keyboard,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    FlatList,
+    Keyboard,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import "react-native-get-random-values";
 import { v4 as uuidv4 } from "uuid";
@@ -120,6 +120,7 @@ const AddressPicker = forwardRef<AddressPickerHandle, Props>(function AddressPic
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [items, setItems] = useState<Row[]>([]);
   const [open, setOpen] = useState(false);
+  const isPickingRef = useRef(false); // 주소 선택 중인지 추적
 
   const mounted = useRef(true);
   const controllerRef = useRef<AbortController | null>(null);
@@ -194,6 +195,11 @@ const AddressPicker = forwardRef<AddressPickerHandle, Props>(function AddressPic
 
   /** 자동완성 */
   useEffect(() => {
+    // 주소 선택 중이면 자동완성 실행하지 않음
+    if (isPickingRef.current) {
+      return;
+    }
+    
     if (!PLACES_KEY) {
       setErrorMsg("Google Places API Key가 필요합니다.");
       setItems([]);
@@ -236,8 +242,16 @@ const AddressPicker = forwardRef<AddressPickerHandle, Props>(function AddressPic
 
   /** 항목 선택 시 처리 */
   const handlePick = async (row: Row) => {
+    // 주소 선택 중 플래그 설정
+    isPickingRef.current = true;
+    
+    // 즉시 드롭다운 닫기 및 로딩 상태 초기화
+    setOpen(false);
+    setItems([]);
+    setLoading(false);
+    Keyboard.dismiss();
+    
     try {
-      setLoading(true);
       const detJson = await fetchDetails(row.place_id);
       let finalName = row.main;
       let finalAddr = stripLeadingCountry(row.secondary, hideCountrySuffix);
@@ -274,9 +288,10 @@ const AddressPicker = forwardRef<AddressPickerHandle, Props>(function AddressPic
       });
     } finally {
       sessionTokenRef.current = uuidv4();
-      setOpen(false);
-      setLoading(false);
-      Keyboard.dismiss();
+      // 주소 선택 완료 후 플래그 해제 (약간의 지연을 두어 자동완성이 다시 트리거되지 않도록)
+      setTimeout(() => {
+        isPickingRef.current = false;
+      }, 500);
     }
   };
 

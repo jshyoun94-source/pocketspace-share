@@ -118,10 +118,19 @@ export default function VoiceSearchButton({
           });
 
           const onResultEvt = addL("result", (e: any) => {
+            console.log("음성 인식 결과:", e);
+            // interimResults도 처리하되, 최종 결과가 나오면 그걸 사용
             if (e?.isFinal) {
               gotFinalRef.current = true;
-              const text = (e?.transcript ?? "").trim();
-              if (text) onResult?.(text);
+              const text = (e?.transcript ?? e?.text ?? "").trim();
+              if (text) {
+                console.log("최종 인식 텍스트:", text);
+                onResult?.(text);
+                stop(); // 인식 완료 후 자동으로 중지
+              }
+            } else if (e?.transcript || e?.text) {
+              // 중간 결과도 로그로 확인
+              console.log("중간 인식 텍스트:", e.transcript || e.text);
             }
           });
 
@@ -174,10 +183,29 @@ export default function VoiceSearchButton({
 
       setTimeout(() => {
         try {
-          moduleRef.current?.start?.({ lang, interimResults: true, continuous: true });
-          funcApiRef.current?.start?.({ lang, interimResults: true, continuous: true });
-        } catch {}
-      }, Platform.OS === "ios" ? 120 : 0);
+          console.log("음성 인식 시작 시도...");
+          const startOptions = { 
+            lang, 
+            interimResults: true, 
+            continuous: false // continuous를 false로 변경하여 더 빠른 결과 반환
+          };
+          
+          if (moduleRef.current?.start) {
+            console.log("moduleRef.start 호출");
+            moduleRef.current.start(startOptions);
+          }
+          if (funcApiRef.current?.start) {
+            console.log("funcApiRef.start 호출");
+            const startFn = funcApiRef.current.start;
+            if (typeof startFn === 'function') {
+              startFn(startOptions);
+            }
+          }
+        } catch (error) {
+          console.error("음성 인식 시작 오류:", error);
+          Alert.alert("오류", "음성 인식을 시작하지 못했습니다.");
+        }
+      }, Platform.OS === "ios" ? 200 : 100);
     } catch {
       Alert.alert("시작 실패", "음성 인식을 시작하지 못했어요.");
     }

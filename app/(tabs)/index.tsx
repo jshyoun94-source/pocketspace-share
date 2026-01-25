@@ -2,23 +2,25 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
-import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { collection, getDocs } from "firebase/firestore";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Platform,
-  Pressable,
-  Text,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    Text,
+    View,
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import AddressPicker, { AddressPickerHandle } from "../../components/AddressPicker";
 import SideMenu from "../../components/SideMenu";
 import VoiceSearchButton from "../../components/VoiceSearchButton";
-import { db } from "../../firebase";
+import { auth, db } from "../../firebase";
 
 type Space = {
   id: string;
@@ -33,6 +35,7 @@ type Space = {
 
 export default function HomeMap() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const mapRef = useRef<MapView>(null);
   const addrRef = useRef<AddressPickerHandle>(null); // 음성결과 주입용 ref
 
@@ -52,9 +55,16 @@ export default function HomeMap() {
     formatted?: string;
   } | null>(null);
 
-  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false); // 필터 모달 상태
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [loginModalVisible, setLoginModalVisible] = useState(false);
+  
+  // 필터 상태
+  const [selectedDistance, setSelectedDistance] = useState<number | null>(null); // 미터 단위 (50, 100, 500, 1000)
+  const [selectedMaxPrice, setSelectedMaxPrice] = useState<number | null>(null); // 1000, 2000
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]); // 보관가능물품
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   const banner = useMemo(
     () => ({
@@ -65,28 +75,109 @@ export default function HomeMap() {
     []
   );
 
-  // 현재 위치로 초기 이동
+  // 현재 위치로 초기 이동 및 실시간 위치 추적
   useEffect(() => {
+    let watchSubscription: Location.LocationSubscription | null = null;
+    
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted") {
-          const loc = await Location.getCurrentPositionAsync({});
-          const { latitude, longitude } = loc.coords;
-          setRegion((r: Region) => ({ ...r, latitude, longitude }));
+          try {
+            // 초기 위치 가져오기
+            const loc = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            const { latitude, longitude } = loc.coords;
+            setCurrentLocation({ lat: latitude, lng: longitude });
+            setRegion((r: Region) => ({ ...r, latitude, longitude }));
+            mapRef.current?.animateToRegion(
+              {
+                latitude,
+                longitude,
+                latitudeDelta: 0.02,
+                longitudeDelta: 0.02,
+              },
+              600
+            );
+
+            // 실시간 위치 추적 시작 (위치가 변경될 때마다 맵 업데이트)
+            watchSubscription = await Location.watchPositionAsync(
+              {
+                accuracy: Location.Accuracy.Balanced,
+                timeInterval: 5000, // 5초마다 업데이트
+                distanceInterval: 10, // 10미터 이상 이동 시 업데이트
+              },
+              (location) => {
+                const { latitude, longitude } = location.coords;
+                setCurrentLocation({ lat: latitude, lng: longitude });
+                // 맵이 사용자가 직접 이동시킨 게 아니면 자동으로 위치 따라가기
+                setRegion((prev) => {
+                  // 이전 위치와 거리가 많이 떨어졌을 때만 업데이트
+                  const latDiff = Math.abs(prev.latitude - latitude);
+                  const lngDiff = Math.abs(prev.longitude - longitude);
+                  if (latDiff > 0.001 || lngDiff > 0.001) {
+                    mapRef.current?.animateToRegion(
+                      {
+                        latitude,
+                        longitude,
+                        latitudeDelta: 0.02,
+                        longitudeDelta: 0.02,
+                      },
+                      1000
+                    );
+                    return { ...prev, latitude, longitude };
+                  }
+                  return prev;
+                });
+              }
+            );
+          } catch (locError) {
+            // 위치 가져오기 실패 시 시뮬레이터에서 위치 설정 안내
+            console.log("위치 가져오기 실패, 기본 위치(서울) 사용:", locError);
+            // 시뮬레이터: Xcode > Features > Location > Custom Location에서 위치 설정 가능
+            // 또는 기본값(서울) 유지
+          }
+        }
+      } catch (permError) {
+        console.log("위치 권한 오류:", permError);
+      }
+    })();
+
+    // cleanup: 컴포넌트 언마운트 시 위치 추적 중지
+    return () => {
+      if (watchSubscription) {
+        watchSubscription.remove();
+      }
+    };
+  }, []);
+
+  // 등록된 공간 위치로 이동
+  useEffect(() => {
+    if (params.focusLat && params.focusLng) {
+      const lat = parseFloat(params.focusLat as string);
+      const lng = parseFloat(params.focusLng as string);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        setTimeout(() => {
           mapRef.current?.animateToRegion(
             {
-              latitude,
-              longitude,
-              latitudeDelta: 0.02,
-              longitudeDelta: 0.02,
+              latitude: lat,
+              longitude: lng,
+              latitudeDelta: 0.005, // 두 배 확대 (0.01 -> 0.005)
+              longitudeDelta: 0.005,
             },
-            600
+            1000
           );
-        }
-      } catch {}
-    })();
-  }, []);
+          setRegion({
+            latitude: lat,
+            longitude: lng,
+            latitudeDelta: 0.005,
+            longitudeDelta: 0.005,
+          });
+        }, 500);
+      }
+    }
+  }, [params.focusLat, params.focusLng]);
 
   // Firestore + 로컬 병합 로드
   const loadSpaces = useCallback(async () => {
@@ -144,16 +235,59 @@ export default function HomeMap() {
     }, [loadSpaces])
   );
 
+  // 거리 계산 함수 (Haversine formula)
+  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371000; // 지구 반지름 (미터)
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // 미터 단위
+  };
+
   const filtered = useMemo(
     () =>
       spaces.filter((s) => {
+        // 태그 필터
         if (selectedTags.length > 0) {
           const ok = selectedTags.every((t) => s.tags.includes(t));
           if (!ok) return false;
         }
+        
+        // 거리 필터
+        if (selectedDistance !== null && currentLocation) {
+          const distance = calculateDistance(
+            currentLocation.lat,
+            currentLocation.lng,
+            s.coords.lat,
+            s.coords.lng
+          );
+          if (distance > selectedDistance) return false;
+        }
+        
+        // 가격 필터
+        if (selectedMaxPrice !== null) {
+          if (s.pricePerHour > selectedMaxPrice) return false;
+        }
+        
+        // 보관가능물품 필터
+        if (selectedCategories.length > 0) {
+          // "모든물품"이 선택되면 모든 공간 통과
+          if (!selectedCategories.includes("모든물품")) {
+            // 선택된 카테고리 중 하나라도 공간의 태그에 포함되어야 함
+            const hasCategory = selectedCategories.some((cat) => s.tags.includes(cat));
+            if (!hasCategory) return false;
+          }
+        }
+        
         return true;
       }),
-    [spaces, selectedTags]
+    [spaces, selectedTags, selectedDistance, selectedMaxPrice, selectedCategories, currentLocation]
   );
 
   const goDetail = (id: string) => router.push(`/space/${id}`);
@@ -238,6 +372,9 @@ export default function HomeMap() {
         onRegionChangeComplete={setRegion}
         showsUserLocation
         loadingEnabled
+        mapType="standard"
+        // iOS에서 언어 설정을 위해 사용자 위치 기반 설정
+        userInterfaceStyle="light"
       >
         {filtered.map((s) => (
           <Marker
@@ -277,6 +414,8 @@ export default function HomeMap() {
           top: Platform.select({ ios: 48, android: 18 }),
           left: 12,
           right: 12,
+          zIndex: 1000,
+          elevation: 10,
         }}
       >
         <View
@@ -293,13 +432,14 @@ export default function HomeMap() {
             elevation: 4,
             paddingHorizontal: 10,
             height: 56,
+            overflow: "visible",
           }}
         >
           <Pressable onPress={() => setMenuOpen(true)} style={{ padding: 6 }}>
             <Ionicons name="menu" size={20} color="#333" />
           </Pressable>
 
-          <View style={{ flex: 1, marginHorizontal: 8 }}>
+          <View style={{ flex: 1, marginHorizontal: 8, zIndex: 1 }}>
             <AddressPicker
               ref={addrRef}
               placeholder="목적지 또는 주소 검색"
@@ -313,23 +453,29 @@ export default function HomeMap() {
           </View>
 
           {/* 🎤 음성검색 버튼 */}
-          <View style={{ padding: 4 }}>
+          <View style={{ padding: 4, zIndex: 1 }}>
             <VoiceSearchButton onResult={handleVoiceResult} />
           </View>
 
           <Pressable
-            onPress={() => setFilterOpen(true)}
+            onPress={() => {
+              setFilterOpen(true);
+            }}
             style={{
               marginLeft: 8,
               backgroundColor: "#2477ff",
-              paddingHorizontal: 12,
+              paddingHorizontal: 10,
               height: 36,
               borderRadius: 10,
               justifyContent: "center",
               alignItems: "center",
+              zIndex: 10000,
+              elevation: 100,
+              minWidth: 50,
             }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Text style={{ color: "#fff", fontWeight: "700" }}>필터</Text>
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>필터</Text>
           </Pressable>
         </View>
       </View>
@@ -396,7 +542,14 @@ export default function HomeMap() {
 
       {/* 내공간등록 버튼 */}
       <Pressable
-        onPress={() => router.push("/space/new")}
+        onPress={() => {
+          // 로그인 상태 확인
+          if (!auth.currentUser) {
+            setLoginModalVisible(true);
+          } else {
+            router.push("/space/new");
+          }
+        }}
         style={{
           position: "absolute",
           bottom: 170,
@@ -415,6 +568,80 @@ export default function HomeMap() {
           + 내 공간 등록
         </Text>
       </Pressable>
+
+      {/* 로그인 필요 모달 */}
+      <Modal
+        visible={loginModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLoginModalVisible(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              width: "100%",
+              maxWidth: 320,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: "700",
+                color: "#111827",
+                marginBottom: 12,
+                textAlign: "center",
+              }}
+            >
+              로그인 필요
+            </Text>
+            <Text
+              style={{
+                fontSize: 16,
+                color: "#6B7280",
+                marginBottom: 24,
+                textAlign: "center",
+              }}
+            >
+              로그인 후 이용해주세요.
+            </Text>
+            <Pressable
+              onPress={() => {
+                setLoginModalVisible(false);
+                router.push("/(auth)/login");
+              }}
+              style={{
+                backgroundColor: "#2477ff",
+                borderRadius: 12,
+                paddingVertical: 14,
+                alignItems: "center",
+                justifyContent: "center",
+                width: "100%",
+              }}
+            >
+              <Text
+                style={{
+                  color: "#fff",
+                  fontSize: 16,
+                  fontWeight: "700",
+                }}
+              >
+                회원가입 및 로그인하러가기
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       {/* 하단 카드 */}
       <View style={{ position: "absolute", left: 12, right: 12, bottom: 16 }}>
@@ -481,6 +708,116 @@ export default function HomeMap() {
       )}
 
       <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} bannerUri={banner.image} />
+
+      {/* 필터 패널 (오른쪽에서 왼쪽으로 슬라이드) */}
+      <Modal transparent visible={filterOpen} animationType="fade" onRequestClose={() => setFilterOpen(false)}>
+        <Pressable 
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }} 
+          onPress={() => setFilterOpen(false)} 
+        />
+        <View style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: "85%", backgroundColor: "#fff" }}>
+          <ScrollView style={{ flex: 1, padding: 20 }} showsVerticalScrollIndicator={false}>
+            {/* 헤더 */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+              <Text style={{ fontSize: 24, fontWeight: "700", color: "#111827" }}>필터</Text>
+              <Pressable onPress={() => setFilterOpen(false)}>
+                <Ionicons name="close" size={24} color="#111827" />
+              </Pressable>
+            </View>
+
+            {/* 위치 필터 */}
+            <View style={{ marginBottom: 32 }}>
+              <Text style={{ fontSize: 18, fontWeight: "600", color: "#111827", marginBottom: 16 }}>거리</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {[50, 100, 500, 1000].map((distance) => {
+                  const isSelected = selectedDistance === distance;
+                  const label = distance < 1000 ? `${distance}m` : `${distance / 1000}km`;
+                  return (
+                    <Pressable
+                      key={distance}
+                      onPress={() => setSelectedDistance(isSelected ? null : distance)}
+                      style={{
+                        paddingHorizontal: 16,
+                        paddingVertical: 10,
+                        borderRadius: 8,
+                        backgroundColor: isSelected ? "#2477ff" : "#F3F4F6",
+                        borderWidth: 1,
+                        borderColor: isSelected ? "#2477ff" : "#E5E7EB",
+                      }}
+                    >
+                      <Text style={{ color: isSelected ? "#fff" : "#111827", fontWeight: "600" }}>
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* 가격 필터 */}
+            <View style={{ marginBottom: 32 }}>
+              <Text style={{ fontSize: 18, fontWeight: "600", color: "#111827", marginBottom: 16 }}>가격</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {[1000, 2000].map((price) => {
+                  const isSelected = selectedMaxPrice === price;
+                  return (
+                    <Pressable
+                      key={price}
+                      onPress={() => setSelectedMaxPrice(isSelected ? null : price)}
+                      style={{
+                        paddingHorizontal: 16,
+                        paddingVertical: 10,
+                        borderRadius: 8,
+                        backgroundColor: isSelected ? "#2477ff" : "#F3F4F6",
+                        borderWidth: 1,
+                        borderColor: isSelected ? "#2477ff" : "#E5E7EB",
+                      }}
+                    >
+                      <Text style={{ color: isSelected ? "#fff" : "#111827", fontWeight: "600" }}>
+                        {price.toLocaleString()}원 이하
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* 보관가능물품 필터 */}
+            <View style={{ marginBottom: 32 }}>
+              <Text style={{ fontSize: 18, fontWeight: "600", color: "#111827", marginBottom: 16 }}>보관가능물품</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {["모든물품", "옷/잡화", "20kg이내", "수하물캐리어 크기이하", "기내용캐리어 크기이하", "지저분한물품가능"].map((category) => {
+                  const isSelected = selectedCategories.includes(category);
+                  return (
+                    <Pressable
+                      key={category}
+                      onPress={() => {
+                        if (isSelected) {
+                          setSelectedCategories(selectedCategories.filter((c) => c !== category));
+                        } else {
+                          setSelectedCategories([...selectedCategories, category]);
+                        }
+                      }}
+                      style={{
+                        paddingHorizontal: 16,
+                        paddingVertical: 10,
+                        borderRadius: 8,
+                        backgroundColor: isSelected ? "#2477ff" : "#F3F4F6",
+                        borderWidth: 1,
+                        borderColor: isSelected ? "#2477ff" : "#E5E7EB",
+                      }}
+                    >
+                      <Text style={{ color: isSelected ? "#fff" : "#111827", fontWeight: "600" }}>
+                        {category}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
