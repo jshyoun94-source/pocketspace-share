@@ -272,8 +272,8 @@ export default function SpaceDetailScreen() {
                 </>
               )}
 
-              {/* 내 물건 맡기기 버튼 */}
-              {data.ownerId && data.ownerId !== currentUser?.uid && (
+              {/* 내 물건 맡기기 버튼 - 소유자가 아닌 경우에만 표시 (로그인 여부와 관계없이) */}
+              {(!data.ownerId || data.ownerId !== currentUser?.uid) && (
                 <Pressable
                   style={styles.chatButton}
                   onPress={() => {
@@ -285,21 +285,6 @@ export default function SpaceDetailScreen() {
                       return;
                     }
                     router.push(`/space/${id}/chat`);
-                  }}
-                >
-                  <Text style={styles.chatButtonText}>내 물건 맡기기</Text>
-                </Pressable>
-              )}
-              
-              {/* 로그인하지 않은 경우에도 버튼 표시 */}
-              {!currentUser && (
-                <Pressable
-                  style={styles.chatButton}
-                  onPress={() => {
-                    Alert.alert("로그인 필요", "물건을 맡기려면 로그인이 필요합니다.", [
-                      { text: "취소", style: "cancel" },
-                      { text: "로그인", onPress: () => router.push("/(auth)/login") },
-                    ]);
                   }}
                 >
                   <Text style={styles.chatButtonText}>내 물건 맡기기</Text>

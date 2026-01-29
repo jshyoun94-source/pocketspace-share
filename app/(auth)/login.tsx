@@ -6,6 +6,7 @@ import {
   Modal,
   Pressable,
   SafeAreaView,
+  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
@@ -16,6 +17,7 @@ import KakaoLoginButton from "../../components/KakaoLoginButton";
 import NaverLoginButton from "../../components/NaverLoginButton";
 import useKakaoLogin from "../../hooks/useKakaoLogin";
 import { auth, db } from "../../firebase";
+import { TERMS_CONTENT, PRIVACY_CONTENT } from "../../utils/termsContent";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -24,6 +26,14 @@ export default function LoginScreen() {
   const [nicknameModalVisible, setNicknameModalVisible] = useState(false);
   const [nickname, setNickname] = useState("");
   const [nicknameLoading, setNicknameLoading] = useState(false);
+  
+  // 이용약관 동의 관련 상태
+  const [termsModalVisible, setTermsModalVisible] = useState(false);
+  const [termsAgreed, setTermsAgreed] = useState(false);
+  const [privacyAgreed, setPrivacyAgreed] = useState(false);
+  const [termsContentVisible, setTermsContentVisible] = useState(false);
+  const [privacyContentVisible, setPrivacyContentVisible] = useState(false);
+  const [pendingLoginType, setPendingLoginType] = useState<"naver" | "kakao" | "google" | null>(null);
 
   // 닉네임 저장 및 홈으로 이동
   const handleNicknameSubmit = async () => {
@@ -48,6 +58,63 @@ export default function LoginScreen() {
       console.error("닉네임 저장 실패:", e);
     } finally {
       setNicknameLoading(false);
+    }
+  };
+
+  // 이용약관 동의 확인
+  const checkTermsAgreement = async (loginType: "naver" | "kakao" | "google") => {
+    if (!auth.currentUser) return;
+    
+    try {
+      const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+      const userData = userDoc.data();
+      
+      // 이미 약관에 동의한 경우 바로 닉네임 확인
+      if (userData?.termsAgreed && userData?.privacyAgreed) {
+        await checkAndSetNickname();
+        return;
+      }
+      
+      // 약관 동의가 필요한 경우 모달 표시
+      setPendingLoginType(loginType);
+      setTermsModalVisible(true);
+    } catch (e) {
+      console.error("약관 동의 확인 실패:", e);
+      // 에러 발생 시에도 약관 동의 모달 표시
+      setPendingLoginType(loginType);
+      setTermsModalVisible(true);
+    }
+  };
+
+  // 이용약관 동의 처리
+  const handleTermsAgreement = async () => {
+    if (!termsAgreed || !privacyAgreed) {
+      return;
+    }
+    
+    try {
+      if (auth.currentUser) {
+        await setDoc(
+          doc(db, "users", auth.currentUser.uid),
+          {
+            termsAgreed: true,
+            privacyAgreed: true,
+            termsAgreedAt: serverTimestamp(),
+            privacyAgreedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+      
+      setTermsModalVisible(false);
+      setTermsAgreed(false);
+      setPrivacyAgreed(false);
+      
+      // 약관 동의 후 닉네임 확인
+      await checkAndSetNickname();
+    } catch (e) {
+      console.error("약관 동의 저장 실패:", e);
     }
   };
 
@@ -77,12 +144,22 @@ export default function LoginScreen() {
     try {
       setKakaoLoading(true);
       await signInWithKakao();
-      // ✅ 카카오 로그인 성공 후 닉네임 확인
-      await checkAndSetNickname();
+      // ✅ 카카오 로그인 성공 후 약관 동의 확인
+      await checkTermsAgreement("kakao");
     } finally {
       setKakaoLoading(false);
     }
   };
+
+  const handleNaverSuccess = async () => {
+    await checkTermsAgreement("naver");
+  };
+
+  const handleGoogleSuccess = async () => {
+    await checkTermsAgreement("google");
+  };
+
+  const allAgreed = termsAgreed && privacyAgreed;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
@@ -92,14 +169,14 @@ export default function LoginScreen() {
           로그인
         </Text>
 
-        <NaverLoginButton onSuccess={checkAndSetNickname} />
+        <NaverLoginButton onSuccess={handleNaverSuccess} />
         <View style={{ height: 16 }} />
 
         {/* ✅ onPress를 KakaoLoginButton에 전달 */}
         <KakaoLoginButton onPress={handleKakaoPress} loading={kakaoLoading} />
 
         <View style={{ height: 16 }} />
-        <GoogleLoginButton onSuccess={checkAndSetNickname} />
+        <GoogleLoginButton onSuccess={handleGoogleSuccess} />
 
         <TouchableOpacity
           onPress={() => router.back()}
@@ -108,6 +185,267 @@ export default function LoginScreen() {
           <Text style={{ color: "#6B7280" }}>뒤로가기</Text>
         </TouchableOpacity>
       </View>
+
+      {/* 이용약관 동의 모달 */}
+      <Modal
+        visible={termsModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setTermsModalVisible(false);
+          setTermsAgreed(false);
+          setPrivacyAgreed(false);
+        }}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              width: "100%",
+              maxWidth: 400,
+              maxHeight: "80%",
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: "700",
+                color: "#111827",
+                marginBottom: 20,
+              }}
+            >
+              {termsContentVisible
+                ? "이용약관"
+                : privacyContentVisible
+                ? "개인정보처리방침"
+                : "이용약관 동의"}
+            </Text>
+
+            {/* 약관 내용 보기 */}
+            {termsContentVisible ? (
+              <ScrollView 
+                style={{ maxHeight: 400, marginBottom: 16 }}
+                showsVerticalScrollIndicator={true}
+              >
+                <Text 
+                  style={{ 
+                    fontSize: 13, 
+                    color: "#374151", 
+                    lineHeight: 20,
+                    padding: 8,
+                  }}
+                >
+                  {TERMS_CONTENT}
+                </Text>
+              </ScrollView>
+            ) : privacyContentVisible ? (
+              <ScrollView 
+                style={{ maxHeight: 400, marginBottom: 16 }}
+                showsVerticalScrollIndicator={true}
+              >
+                <Text 
+                  style={{ 
+                    fontSize: 13, 
+                    color: "#374151", 
+                    lineHeight: 20,
+                    padding: 8,
+                  }}
+                >
+                  {PRIVACY_CONTENT}
+                </Text>
+              </ScrollView>
+            ) : (
+              <>
+                {/* 전체 동의 */}
+                <Pressable
+                  onPress={() => {
+                    const allAgree = !allAgreed;
+                    setTermsAgreed(allAgree);
+                    setPrivacyAgreed(allAgree);
+                  }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: "#E5E7EB",
+                    marginBottom: 12,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 4,
+                      borderWidth: 2,
+                      borderColor: allAgreed ? "#2477ff" : "#D1D5DB",
+                      backgroundColor: allAgreed ? "#2477ff" : "#fff",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      marginRight: 12,
+                    }}
+                  >
+                    {allAgreed && (
+                      <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>✓</Text>
+                    )}
+                  </View>
+                  <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827" }}>
+                    전체 동의
+                  </Text>
+                </Pressable>
+
+                {/* 이용약관 동의 */}
+                <Pressable
+                  onPress={() => setTermsAgreed(!termsAgreed)}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingVertical: 8,
+                    marginBottom: 8,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 4,
+                      borderWidth: 2,
+                      borderColor: termsAgreed ? "#2477ff" : "#D1D5DB",
+                      backgroundColor: termsAgreed ? "#2477ff" : "#fff",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      marginRight: 12,
+                    }}
+                  >
+                    {termsAgreed && (
+                      <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>✓</Text>
+                    )}
+                  </View>
+                  <Text style={{ fontSize: 14, color: "#374151", flex: 1 }}>
+                    이용약관 동의 (필수)
+                  </Text>
+                  <Pressable
+                    onPress={() => setTermsContentVisible(true)}
+                    style={{ padding: 4 }}
+                  >
+                    <Text style={{ fontSize: 12, color: "#6B7280" }}>보기</Text>
+                  </Pressable>
+                </Pressable>
+
+                {/* 개인정보처리방침 동의 */}
+                <Pressable
+                  onPress={() => setPrivacyAgreed(!privacyAgreed)}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingVertical: 8,
+                    marginBottom: 16,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 4,
+                      borderWidth: 2,
+                      borderColor: privacyAgreed ? "#2477ff" : "#D1D5DB",
+                      backgroundColor: privacyAgreed ? "#2477ff" : "#fff",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      marginRight: 12,
+                    }}
+                  >
+                    {privacyAgreed && (
+                      <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>✓</Text>
+                    )}
+                  </View>
+                  <Text style={{ fontSize: 14, color: "#374151", flex: 1 }}>
+                    개인정보처리방침 동의 (필수)
+                  </Text>
+                  <Pressable
+                    onPress={() => setPrivacyContentVisible(true)}
+                    style={{ padding: 4 }}
+                  >
+                    <Text style={{ fontSize: 12, color: "#6B7280" }}>보기</Text>
+                  </Pressable>
+                </Pressable>
+              </>
+            )}
+
+            {/* 버튼 영역 */}
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              {termsContentVisible || privacyContentVisible ? (
+                <Pressable
+                  onPress={() => {
+                    setTermsContentVisible(false);
+                    setPrivacyContentVisible(false);
+                  }}
+                  style={{
+                    flex: 1,
+                    backgroundColor: "#F3F4F6",
+                    borderRadius: 12,
+                    paddingVertical: 14,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text style={{ color: "#6B7280", fontSize: 16, fontWeight: "700" }}>
+                    돌아가기
+                  </Text>
+                </Pressable>
+              ) : (
+                <>
+                  <Pressable
+                    onPress={() => {
+                      setTermsModalVisible(false);
+                      setTermsAgreed(false);
+                      setPrivacyAgreed(false);
+                    }}
+                    style={{
+                      flex: 1,
+                      backgroundColor: "#F3F4F6",
+                      borderRadius: 12,
+                      paddingVertical: 14,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text style={{ color: "#6B7280", fontSize: 16, fontWeight: "700" }}>
+                      취소
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleTermsAgreement}
+                    disabled={!allAgreed}
+                    style={{
+                      flex: 1,
+                      backgroundColor: allAgreed ? "#2477ff" : "#D1D5DB",
+                      borderRadius: 12,
+                      paddingVertical: 14,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>
+                      동의하기
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* 닉네임 설정 모달 */}
       <Modal

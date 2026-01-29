@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PocketSpace - 안전한 물건 보관 공간 공유</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.6;
+      color: #1f2937;
+      background: #f9fafb;
+    }
+    .header {
+      background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+      color: #fff;
+      padding: 2rem 1.5rem;
+      text-align: center;
+    }
+    .header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .header p { font-size: 0.95rem; opacity: 0.95; }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
+    section {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    section h2 {
+      color: #1e3a8a;
+      font-size: 1.25rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid #e5e7eb;
+    }
+    section h3 { font-size: 1rem; color: #374151; margin: 1rem 0 0.5rem; }
+    section ul, section p { margin-bottom: 0.75rem; font-size: 0.95rem; }
+    section li { margin-left: 1.25rem; margin-bottom: 0.35rem; }
+    .pdf-box {
+      background: #eff6ff;
+      border: 1px solid #3b82f6;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-top: 1.5rem;
+      text-align: center;
+    }
+    .pdf-box a {
+      color: #1d4ed8;
+      font-weight: 600;
+      text-decoration: none;
+      font-size: 1rem;
+    }
+    .pdf-box a:hover { text-decoration: underline; }
+    .footer {
+      text-align: center;
+      padding: 2rem 1rem;
+      font-size: 0.875rem;
+      color: #6b7280;
+    }
+    .footer a { color: #3b82f6; text-decoration: none; }
+    .biz-info {
+      background: #f0f9ff;
+      border: 1px solid #0ea5e9;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-top: 0.75rem;
+    }
+    .biz-info dl { margin: 0; }
+    .biz-info dt {
+      font-weight: 600;
+      color: #0c4a6e;
+      font-size: 0.8rem;
+      margin-top: 0.5rem;
+    }
+    .biz-info dt:first-child { margin-top: 0; }
+    .biz-info dd {
+      margin: 0.2rem 0 0 0;
+      font-size: 0.95rem;
+      color: #1e293b;
+    }
+    .biz-pdf { margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <h1>PocketSpace</h1>
+    <p>안전하고 편리한 물건 보관 공간 공유 플랫폼</p>
+  </header>
+
+  <main class="container">
+    <section>
+      <h2>사업자 정보</h2>
+      <p>포켓스페이스 사업자 등록 정보입니다. (사업자등록증과 동일)</p>
+      <div class="biz-info">
+        <dl>
+          <dt>상호 (법인명)</dt>
+          <dd>포켓스페이스</dd>
+          <dt>사업자등록번호</dt>
+          <dd>565-02-03852</dd>
+          <dt>대표자성명</dt>
+          <dd>신배현</dd>
+          <dt>사업장소재지</dt>
+          <dd>인천광역시 남동구 경인로653번길 11, 1동동 5층 10호 510호 (간석동, 간석리페도시형생활주택1차)</dd>
+          <dt>개업일</dt>
+          <dd>2026년 01월 26일</dd>
+          <dt>업태</dt>
+          <dd>정보통신업</dd>
+          <dt>종목</dt>
+          <dd>응용 소프트웨어 개발 및 공급업</dd>
+        </dl>
+        <div class="biz-pdf pdf-box">
+          <a href="/saupja-deungrok-jeungmyeong.pdf" download>📄 사업자등록증 원본 PDF</a>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>PocketSpace란?</h2>
+      <p>PocketSpace는 <strong>안전하고 편리한 물건 보관 공간 공유 플랫폼</strong>입니다. 일상생활에서 잠시 물건을 보관해야 할 때, 주변의 안전한 보관 공간을 쉽게 찾고 예약할 수 있는 모바일 애플리케이션입니다.</p>
+    </section>
+
+    <section>
+      <h2>주요 기능</h2>
+      <h3>1. 공간 등록 및 검색</h3>
+      <ul>
+        <li>사용자들이 자신의 공간(가게, 사무실, 창고 등)을 등록하여 보관 서비스 제공</li>
+        <li>지도 기반 검색으로 내 주변 보관 공간을 쉽게 찾기</li>
+        <li>거리, 가격, 보관 가능 물품 카테고리로 필터링</li>
+      </ul>
+      <h3>2. 실시간 채팅</h3>
+      <ul>
+        <li>공간 제공자와 이용자 간 실시간 채팅</li>
+        <li>예약 전 상세 문의 및 예약 후 소통</li>
+      </ul>
+      <h3>3. 동네생활 커뮤니티</h3>
+      <ul>
+        <li>반경 5km 내 동네 주민들과 소통</li>
+        <li>게시글 작성, 댓글, 답글, 사진 첨부</li>
+      </ul>
+      <h3>4. 동네부탁 서비스</h3>
+      <ul>
+        <li>주변 이웃에게 부탁을 요청하고 수락</li>
+        <li>금액 협의 및 거래 가능</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>서비스 특징</h2>
+      <p><strong>안전성</strong> – 등록된 공간의 위치, 사진, 설명을 통한 투명한 정보 제공</p>
+      <p><strong>편리성</strong> – 지도 기반 검색, 시간대별 필터링, 간편한 예약</p>
+      <p><strong>커뮤니티</strong> – 동네생활·동네부탁을 통한 지역 이웃 소통</p>
+    </section>
+
+    <section>
+      <h2>소개 자료</h2>
+      <p>포켓스페이스 사업 소개 자료를 PDF로 확인하실 수 있습니다.</p>
+      <div class="pdf-box">
+        <a href="/pocketspace-intro.pdf" download>📄 포켓스페이스 소개자료 PDF 다운로드</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p><a href="/terms.html">이용약관</a> · <a href="/privacy.html">개인정보처리방침</a></p>
+    <p style="margin-top: 0.5rem;">© PocketSpace</p>
+  </footer>
+</body>
+</html>

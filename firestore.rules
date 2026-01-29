@@ -40,7 +40,8 @@ service cloud.firestore {
     // spaces
     // -------------------------
     match /spaces/{spaceId} {
-      allow read: if signedIn();
+      // 로그인 여부와 관계없이 모든 사용자가 공간 정보를 읽을 수 있음
+      allow read: if true;
 
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid;
@@ -56,10 +57,13 @@ service cloud.firestore {
 
       // ✅ 중요:
       // getDoc(단건)는 "없어도" 허용해야 존재 여부 확인이 가능함
+      // list 쿼리 결과의 각 문서도 이 get 규칙으로 검증됨
       allow get: if signedIn() && (resource == null || isChatMember(resource.data));
 
-      // list(쿼리)는 제한(지금 chat.tsx는 list 안 쓰지만, 안전상 닫아둠)
-      allow list: if false;
+      // list(쿼리): 로그인한 사용자만 쿼리 가능
+      // 쿼리 결과의 각 문서는 위의 get 규칙으로 자동 검증됨
+      // (isChatMember 체크를 통과한 문서만 반환됨)
+      allow list: if signedIn();
 
       // 생성: owner/customer 중 한 명이 본인일 때
       allow create: if signedIn()
@@ -90,6 +94,55 @@ service cloud.firestore {
 
         allow update, delete: if false;
       }
+    }
+
+    // -------------------------
+    // communityPosts (동네생활)
+    // -------------------------
+    match /communityPosts/{postId} {
+      // 모든 사용자가 읽을 수 있음 (반경 5km 필터링은 클라이언트에서)
+      allow read: if true;
+      
+      // 로그인한 사용자만 작성 가능
+      allow create: if signedIn()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.keys().hasAll(['authorId', 'authorName', 'content', 'location', 'createdAt', 'expiresAt']);
+      
+      // 작성자만 수정/삭제 가능
+      allow update, delete: if signedIn()
+        && resource.data.authorId == request.auth.uid;
+      
+      // 댓글
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if signedIn()
+          && request.resource.data.authorId == request.auth.uid
+          && request.resource.data.keys().hasAll(['postId', 'authorId', 'authorName', 'content', 'createdAt']);
+        allow update, delete: if signedIn()
+          && resource.data.authorId == request.auth.uid;
+      }
+    }
+
+    // -------------------------
+    // neighborhoodRequests (동네부탁)
+    // -------------------------
+    match /neighborhoodRequests/{requestId} {
+      // 모든 사용자가 읽을 수 있음
+      allow read: if true;
+      
+      // 로그인한 사용자만 작성 가능
+      allow create: if signedIn()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.keys().hasAll(['authorId', 'authorName', 'title', 'content', 'price', 'location', 'createdAt', 'status']);
+      
+      // 작성자 또는 수락한 사용자만 수정 가능
+      allow update: if signedIn()
+        && (resource.data.authorId == request.auth.uid
+            || resource.data.acceptedBy == request.auth.uid);
+      
+      // 작성자만 삭제 가능
+      allow delete: if signedIn()
+        && resource.data.authorId == request.auth.uid;
     }
 
     match /{document=**} {

@@ -5,12 +5,14 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
   Timestamp,
+  where,
 } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -96,27 +98,50 @@ export default function ChatScreen() {
         setSpaceData(space);
 
         const ownerId: string = space.ownerId;
-        const customerId: string = auth.currentUser!.uid;
+        const currentUserId: string = auth.currentUser!.uid;
 
-        if (ownerId === customerId) {
-          Alert.alert("알림", "자신의 공간에는 물건을 맡길 수 없습니다.");
-          router.back();
-          return;
-        }
+        // 채팅방 찾기: 현재 사용자가 owner 또는 customer인 모든 채팅방 검색
+        // spaceId로 필터링하여 해당 공간의 채팅방만 찾기
+        const chatsRef = collection(db, "chats");
+        const existingChatsQuery = query(
+          chatsRef,
+          where("spaceId", "==", String(spaceId))
+        );
+        const existingChatsSnapshot = await getDocs(existingChatsQuery);
+        
+        let existingChatRoom: any = null;
+        existingChatsSnapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          // 현재 사용자가 owner 또는 customer인 채팅방 찾기
+          if (data.ownerId === currentUserId || data.customerId === currentUserId) {
+            existingChatRoom = { id: docSnap.id, ...data };
+          }
+        });
 
-        // 2) 결정적 chatId (owner/customer 정렬 + spaceId)
-        const chatId = [ownerId, customerId].sort().join("_") + "_" + String(spaceId);
+        let finalChatId: string;
 
-        const chatRoomRef = doc(db, "chats", chatId);
-        const chatRoomDoc = await getDoc(chatRoomRef);
-
-        if (chatRoomDoc.exists()) {
+        // 기존 채팅방이 있는 경우: 바로 사용 (owner여도 채팅 가능)
+        if (existingChatRoom) {
           if (cancelled) return;
-          setChatRoom({ id: chatId, ...(chatRoomDoc.data() as any) } as ChatRoom);
+          console.log("✅ 기존 채팅방 사용:", existingChatRoom.id);
+          setChatRoom(existingChatRoom as ChatRoom);
+          finalChatId = existingChatRoom.id;
         } else {
+          // 채팅방이 없는 경우: owner는 새 채팅방 생성 불가
+          if (ownerId === currentUserId) {
+            Alert.alert("알림", "자신의 공간에는 물건을 맡길 수 없습니다.");
+            router.back();
+            return;
+          }
+
+          // 새 채팅방 생성 (customer만 가능)
+          const customerId = currentUserId;
+          finalChatId = [ownerId, customerId].sort().join("_") + "_" + String(spaceId);
+          const chatRoomRef = doc(db, "chats", finalChatId);
+          
           // 3) 상대/내 이름 가져오기 (users read가 signedIn()이어야 함)
           const ownerDoc = await getDoc(doc(db, "users", ownerId));
-          const customerDoc = await getDoc(doc(db, "users", customerId));
+          const customerDoc = await getDoc(doc(db, "users", currentUserId));
 
           const ownerName =
             ownerDoc.data()?.nickname ||
@@ -135,22 +160,24 @@ export default function ChatScreen() {
             spaceImages: space.images || [],
             ownerId,
             ownerName,
-            customerId,
+            customerId: currentUserId,
             customerName,
             createdAt: serverTimestamp() as any,
             updatedAt: serverTimestamp() as any,
+            lastMessageTime: serverTimestamp() as any, // 초기값 설정
           };
 
-          await setDoc(chatRoomRef, newChatRoom);
+          await setDoc(chatRoomRef, newChatRoom, { merge: false });
+          console.log("✅ 채팅방 생성 완료:", finalChatId, { ownerId, customerId: currentUserId });
 
           if (cancelled) return;
-          setChatRoom({ id: chatId, ...newChatRoom } as ChatRoom);
+          setChatRoom({ id: finalChatId, ...newChatRoom } as ChatRoom);
 
-          // 4) 환영 메시지 (중요: senderId는 문자열 "customerId"가 아니라 변수 customerId)
+          // 4) 환영 메시지 (중요: senderId는 문자열 "customerId"가 아니라 변수 currentUserId)
           // rules에서 senderId==auth.uid 또는 "system"을 허용하고 있으므로 아래는 auth.uid로 통과
-          await setDoc(doc(db, "chats", chatId, "messages", "welcome"), {
+          await setDoc(doc(db, "chats", finalChatId, "messages", "welcome"), {
             text: `${customerName}님이 채팅을 시작했습니다.`,
-            senderId: customerId,
+            senderId: currentUserId,
             type: "system",
             createdAt: serverTimestamp(),
           });
@@ -158,7 +185,7 @@ export default function ChatScreen() {
 
         // 5) messages 구독 (chat 생성/존재 확인 후에만 구독)
         const messagesQuery = query(
-          collection(db, "chats", chatId, "messages"),
+          collection(db, "chats", finalChatId, "messages"),
           orderBy("createdAt", "asc")
         );
 
@@ -206,10 +233,14 @@ export default function ChatScreen() {
         createdAt: serverTimestamp(),
       });
 
-      // 채팅방 updatedAt 갱신
+      // 채팅방 lastMessage, lastMessageTime, updatedAt 갱신
       await setDoc(
         doc(db, "chats", chatRoom.id),
-        { updatedAt: serverTimestamp() },
+        {
+          lastMessage: message.trim(),
+          lastMessageTime: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
         { merge: true }
       );
 

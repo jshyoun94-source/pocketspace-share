@@ -31,6 +31,10 @@ type Space = {
   tags: string[];
   nightClosed?: boolean;
   verified?: boolean;
+  schedules?: Array<{
+    days: string[];
+    time: { start: string; end: string };
+  }>;
 };
 
 export default function HomeMap() {
@@ -65,6 +69,7 @@ export default function HomeMap() {
   const [selectedMaxPrice, setSelectedMaxPrice] = useState<number | null>(null); // 1000, 2000
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]); // 보관가능물품
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [selectedTimeFilter, setSelectedTimeFilter] = useState<"지금" | "오늘" | "내일" | null>(null);
 
   const banner = useMemo(
     () => ({
@@ -197,6 +202,7 @@ export default function HomeMap() {
           tags: x.tags ?? [],
           nightClosed: x.nightClosed ?? false,
           verified: x.verified ?? false,
+          schedules: x.schedules ?? [],
         });
       });
 
@@ -213,6 +219,7 @@ export default function HomeMap() {
           tags: s.categories ?? [],
           nightClosed: false,
           verified: false,
+          schedules: s.schedules ?? [],
         }));
 
       const fsIds = new Set(fsRows.map((r) => r.id));
@@ -250,6 +257,51 @@ export default function HomeMap() {
     return R * c; // 미터 단위
   };
 
+  // 요일 매핑 (한국어 -> 영어)
+  const dayMap: { [key: string]: number } = {
+    mon: 0, // 월요일
+    tue: 1, // 화요일
+    wed: 2, // 수요일
+    thu: 3, // 목요일
+    fri: 4, // 금요일
+    sat: 5, // 토요일
+    sun: 6, // 일요일
+  };
+
+  // 시간 필터링 함수
+  const isSpaceAvailableAtTime = (space: Space, targetDate: Date): boolean => {
+    if (!space.schedules || space.schedules.length === 0) {
+      // 스케줄이 없으면 모든 시간에 이용 가능한 것으로 간주
+      return true;
+    }
+
+    const targetDay = targetDate.getDay(); // 0(일요일) ~ 6(토요일)
+    const targetHour = targetDate.getHours(); // 0 ~ 23
+
+    // 스케줄에서 해당 요일과 시간이 일치하는지 확인
+    return space.schedules.some((schedule) => {
+      // 요일 확인
+      const hasDay = schedule.days.some((day) => {
+        const dayIndex = dayMap[day];
+        return dayIndex === targetDay;
+      });
+
+      if (!hasDay) return false;
+
+      // 시간 확인
+      const startHour = parseInt(schedule.time.start, 10);
+      const endHour = parseInt(schedule.time.end, 10);
+
+      // endHour가 startHour보다 작으면 다음날까지인 경우 (예: 22시 ~ 02시)
+      if (endHour > startHour) {
+        return targetHour >= startHour && targetHour < endHour;
+      } else {
+        // 자정을 넘어가는 경우 (예: 22시 ~ 02시)
+        return targetHour >= startHour || targetHour < endHour;
+      }
+    });
+  };
+
   const filtered = useMemo(
     () =>
       spaces.filter((s) => {
@@ -285,9 +337,53 @@ export default function HomeMap() {
           }
         }
         
+        // 시간 필터 (지금/오늘/내일)
+        if (selectedTimeFilter) {
+          const now = new Date();
+          
+          if (selectedTimeFilter === "지금") {
+            // 현재 시간에 이용 가능한 공간만 표시
+            if (!isSpaceAvailableAtTime(s, now)) return false;
+          } else if (selectedTimeFilter === "오늘") {
+            // 오늘 하루 종일 이용 가능한 공간 (오늘의 모든 시간대 확인)
+            // 오늘 중 하나라도 이용 가능하면 통과
+            const today = new Date(now);
+            today.setHours(0, 0, 0, 0);
+            
+            // 오늘 중 한 시간이라도 이용 가능하면 통과
+            let isAvailableToday = false;
+            for (let hour = 0; hour < 24; hour++) {
+              const checkDate = new Date(today);
+              checkDate.setHours(hour, 0, 0, 0);
+              if (isSpaceAvailableAtTime(s, checkDate)) {
+                isAvailableToday = true;
+                break;
+              }
+            }
+            if (!isAvailableToday) return false;
+          } else if (selectedTimeFilter === "내일") {
+            // 내일 하루 종일 이용 가능한 공간
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(0, 0, 0, 0);
+            
+            // 내일 중 한 시간이라도 이용 가능하면 통과
+            let isAvailableTomorrow = false;
+            for (let hour = 0; hour < 24; hour++) {
+              const checkDate = new Date(tomorrow);
+              checkDate.setHours(hour, 0, 0, 0);
+              if (isSpaceAvailableAtTime(s, checkDate)) {
+                isAvailableTomorrow = true;
+                break;
+              }
+            }
+            if (!isAvailableTomorrow) return false;
+          }
+        }
+        
         return true;
       }),
-    [spaces, selectedTags, selectedDistance, selectedMaxPrice, selectedCategories, currentLocation]
+    [spaces, selectedTags, selectedDistance, selectedMaxPrice, selectedCategories, currentLocation, selectedTimeFilter]
   );
 
   const goDetail = (id: string) => router.push(`/space/${id}`);
@@ -482,25 +578,33 @@ export default function HomeMap() {
 
       {/* 오른쪽 퀵버튼 */}
       <View style={{ position: "absolute", right: 14, top: 140, gap: 10 }}>
-        {["지금", "오늘", "내일"].map((t, i) => (
-          <Pressable
-            key={t}
-            style={{
-              backgroundColor: i === 0 ? "#2477ff" : "white",
-              borderRadius: 999,
-              paddingHorizontal: 16,
-              height: 44,
-              justifyContent: "center",
-              alignItems: "center",
-              borderWidth: 1,
-              borderColor: "#E5E7EB",
-            }}
-          >
-            <Text style={{ color: i === 0 ? "white" : "#111827", fontWeight: "700" }}>
-              {t}
-            </Text>
-          </Pressable>
-        ))}
+        {(["지금", "오늘", "내일"] as const).map((t) => {
+          const isSelected = selectedTimeFilter === t;
+          return (
+            <Pressable
+              key={t}
+              onPress={() => {
+                // 같은 버튼을 다시 누르면 필터 해제
+                setSelectedTimeFilter(isSelected ? null : t);
+              }}
+              style={{
+                backgroundColor: isSelected ? "#2477ff" : "white",
+                paddingHorizontal: 10,
+                height: 36,
+                borderRadius: 10,
+                justifyContent: "center",
+                alignItems: "center",
+                borderWidth: isSelected ? 0 : 1,
+                borderColor: "#E5E7EB",
+                minWidth: 50,
+              }}
+            >
+              <Text style={{ color: isSelected ? "white" : "#111827", fontWeight: "700", fontSize: 14 }}>
+                {t}
+              </Text>
+            </Pressable>
+          );
+        })}
         <View style={{ gap: 10, alignItems: "center" }}>
           <Pressable
             onPress={() =>
@@ -540,7 +644,36 @@ export default function HomeMap() {
         </View>
       </View>
 
-      {/* 내공간등록 버튼 */}
+      {/* 하단 흰색 배경 (탭바 위치부터 화면 하단까지) */}
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: Platform.OS === "ios" ? 60 : 36, // 탭바 + 광고배너 영역 (조정)
+          backgroundColor: "#fff",
+          zIndex: 0, // 가장 아래
+        }}
+      />
+      
+      {/* 탭바 배경 (투명한 탭바 위에 흰색 배경) */}
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: Platform.OS === "ios" ? 52 : 28,
+          height: Platform.OS === "ios" ? 88 : 64,
+          backgroundColor: "#fff",
+          borderTopWidth: 1,
+          borderTopColor: "#E5E7EB",
+          zIndex: 1, // 광고배너보다 아래
+          elevation: 1, // Android
+        }}
+      />
+
+      {/* 내공간등록 버튼 (탭바 위, 여백) */}
       <Pressable
         onPress={() => {
           // 로그인 상태 확인
@@ -552,7 +685,7 @@ export default function HomeMap() {
         }}
         style={{
           position: "absolute",
-          bottom: 170,
+          bottom: Platform.OS === "ios" ? 152 : 128, // 탭바가 내려간 만큼 따라 내려감
           alignSelf: "center",
           backgroundColor: "#2477ff",
           borderRadius: 26,
@@ -562,12 +695,68 @@ export default function HomeMap() {
           shadowOpacity: 0.1,
           shadowRadius: 5,
           elevation: 4,
+          zIndex: 10,
         }}
       >
         <Text style={{ color: "white", fontWeight: "700", fontSize: 16 }}>
           + 내 공간 등록
         </Text>
       </Pressable>
+
+      {/* 광고배너 (탭바를 덮도록) */}
+      <View
+        style={{
+          position: "absolute",
+          left: 12,
+          right: 12,
+          bottom: Platform.OS === "ios" ? 22 : 18, // 한 번 더 올림
+          zIndex: 1000, // 탭바를 덮도록 매우 높은 zIndex
+        }}
+      >
+        <View
+          style={{
+            backgroundColor: "#1E3A8A",
+            borderRadius: 12,
+            paddingVertical: 8, // 세로 높이 줄임
+            paddingHorizontal: 11, // 좌우는 유지
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            shadowColor: "#000",
+            shadowOpacity: 0.1,
+            shadowRadius: 8,
+            elevation: 20, // Android에서 매우 높게 (탭바를 덮도록)
+          }}
+        >
+          <View style={{ flex: 1, marginRight: 12 }}>
+            <Text
+              style={{
+                color: "#fff",
+                fontSize: 13, // 세로 높이 줄임
+                fontWeight: "700",
+                marginBottom: 1, // 간격 줄임
+              }}
+            >
+              포켓스페이스로 편한 보관
+            </Text>
+            <Text style={{ color: "#E0E7FF", fontSize: 10 }}>
+              언제 어디서나 안전한 보관 공간
+            </Text>
+          </View>
+          <View
+            style={{
+              width: 38, // 세로 높이 줄임
+              height: 38, // 세로 높이 줄임
+              backgroundColor: "#3B82F6",
+              borderRadius: 8,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <Ionicons name="cube" size={22} color="#fff" />
+          </View>
+        </View>
+      </View>
 
       {/* 로그인 필요 모달 */}
       <Modal
@@ -643,52 +832,6 @@ export default function HomeMap() {
         </View>
       </Modal>
 
-      {/* 하단 카드 */}
-      <View style={{ position: "absolute", left: 12, right: 12, bottom: 16 }}>
-        <View
-          style={{
-            backgroundColor: "white",
-            borderRadius: 16,
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            shadowColor: "#000",
-            shadowOpacity: 0.08,
-            shadowRadius: 10,
-            elevation: 6,
-          }}
-        >
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-around",
-              alignItems: "center",
-            }}
-          >
-            <BottomButton
-              icon={<Ionicons name="cube-outline" size={22} color="#2563EB" />}
-              label="내 공간"
-            />
-            <BottomButton
-              icon={<Ionicons name="star-outline" size={22} color="#2563EB" />}
-              label="즐겨찾기"
-            />
-            <BottomButton
-              icon={<Ionicons name="briefcase-outline" size={22} color="#2563EB" />}
-              label="이용공간"
-            />
-          </View>
-
-          <View style={{ height: 1, backgroundColor: "#E5E7EB", marginVertical: 8 }} />
-
-          <View style={{ borderRadius: 12, overflow: "hidden" }}>
-            <Image
-              source={{ uri: banner.image }}
-              style={{ width: "100%", height: 70 }}
-              resizeMode="cover"
-            />
-          </View>
-        </View>
-      </View>
 
       {loading && (
         <View
@@ -818,15 +961,6 @@ export default function HomeMap() {
           </ScrollView>
         </View>
       </Modal>
-    </View>
-  );
-}
-
-function BottomButton({ icon, label }: { icon: React.ReactNode; label: string }) {
-  return (
-    <View style={{ alignItems: "center" }}>
-      {icon}
-      <Text style={{ color: "#111827", fontSize: 13, marginTop: 3 }}>{label}</Text>
     </View>
   );
 }
