@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" rx="220" ry="220" fill="#2477FF"/>
+  <!-- pocket shape: rounded top opening, white -->
+  <path d="M 220 340 C 220 260 512 240 512 240 C 804 260 804 340 804 340 L 804 760 C 804 840 512 880 512 880 C 220 840 220 760 220 760 Z" fill="white"/>
+  <!-- small box inside = space -->
+  <rect x="412" y="480" width="200" height="200" rx="24" ry="24" fill="#2477FF" opacity="0.9"/>
+</svg>

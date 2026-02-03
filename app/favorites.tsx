@@ -66,6 +66,8 @@ export default function FavoritesScreen() {
             favoriteId: favoriteDoc.id,
             title: spaceData.title || "제목 없음",
             pricePerHour: spaceData.pricePerHour || 0,
+            priceNegotiable: spaceData.priceNegotiable === true,
+            placeType: spaceData.placeType ?? spaceData.tags?.[0] ?? null,
             address: spaceData.address || "",
             images: spaceData.images || [],
             tags: spaceData.tags || [],
@@ -141,18 +143,16 @@ export default function FavoritesScreen() {
                   <Text style={styles.spaceAddress} numberOfLines={1}>
                     {space.address}
                   </Text>
-                  {space.pricePerHour > 0 && (
+                  {(space.pricePerHour > 0 || space.priceNegotiable) && (
                     <Text style={styles.spacePrice}>
-                      {Number(space.pricePerHour).toLocaleString()}원/시간
+                      {space.priceNegotiable ? "기타협의" : `${Number(space.pricePerHour).toLocaleString()}원/시간`}
                     </Text>
                   )}
-                  {space.tags && space.tags.length > 0 && (
+                  {(space.placeType || (space.tags && space.tags.length > 0)) && (
                     <View style={styles.tagsContainer}>
-                      {space.tags.slice(0, 3).map((tag, index) => (
-                        <View key={index} style={styles.tag}>
-                          <Text style={styles.tagText}>{tag}</Text>
-                        </View>
-                      ))}
+                      <View style={styles.tag}>
+                        <Text style={styles.tagText}>{space.placeType ?? space.tags?.[0] ?? "기타"}</Text>
+                      </View>
                     </View>
                   )}
                 </View>

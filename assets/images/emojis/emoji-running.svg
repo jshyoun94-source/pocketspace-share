@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <circle cx="48" cy="40" r="26" fill="white" stroke="black" stroke-width="2"/>
+  <circle cx="42" cy="36" r="2" fill="black"/>
+  <circle cx="54" cy="36" r="2" fill="black"/>
+  <path d="M40 50 Q48 56 56 50" fill="none" stroke="black" stroke-width="1.5"/>
+  <path d="M20 38 L30 34 L32 42" fill="none" stroke="black" stroke-width="2"/>
+  <path d="M62 40 L74 44 L72 50" fill="none" stroke="black" stroke-width="2"/>
+  <path d="M38 64 L42 86 L48 86 L46 64" fill="none" stroke="black" stroke-width="2"/>
+  <path d="M52 66 L56 88 L64 86 L60 66" fill="none" stroke="black" stroke-width="2"/>
+  <line x1="22" y1="78" x2="35" y2="78" stroke="#666" stroke-width="1" opacity="0.8"/>
+  <line x1="18" y1="84" x2="38" y2="84" stroke="#666" stroke-width="1" opacity="0.6"/>
+  <line x1="24" y1="90" x2="42" y2="90" stroke="#666" stroke-width="1" opacity="0.4"/>
+  <rect x="52" y="5" width="46" height="22" rx="4" fill="white" stroke="black" stroke-width="1.5"/>
+  <text x="58" y="21" font-family="Arial,sans-serif" font-size="10" font-weight="bold" fill="black">지금!</text>
+</svg>

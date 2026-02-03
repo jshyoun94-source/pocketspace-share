@@ -37,7 +37,7 @@ export default function KakaoLoginButton({
         <View style={styles.row}>
           <Image
             source={{
-              uri: "https://t1.kakaocdn.net/kakaocorp/kakaocorp/admin/5ab4c57d0178000001/images/default/logo_og.png",
+              uri: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/KakaoTalk_logo.svg/120px-KakaoTalk_logo.png",
             }}
             style={styles.kakaoIcon}
             resizeMode="contain"

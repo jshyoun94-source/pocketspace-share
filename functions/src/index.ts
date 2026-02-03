@@ -3,15 +3,34 @@ import cors from "cors";
 import express from "express";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
+import {
+  onDocumentCreated,
+  onDocumentDeleted,
+  onDocumentUpdated,
+} from "firebase-functions/v2/firestore";
 
 if (!admin.apps.length) {
-  // Functions 기본 서비스 계정 사용
-  admin.initializeApp();
+  const cfg: admin.AppOptions = {};
+  let storageBucket: string | undefined;
+  try {
+    const fc = process.env.FIREBASE_CONFIG;
+    if (fc) {
+      const parsed = JSON.parse(fc);
+      storageBucket = parsed.storageBucket;
+    }
+  } catch {
+    /* ignore */
+  }
+  if (!storageBucket && process.env.GCLOUD_PROJECT) {
+    storageBucket = `${process.env.GCLOUD_PROJECT}.firebasestorage.app`;
+  }
+  if (storageBucket) cfg.storageBucket = storageBucket;
+  admin.initializeApp(cfg);
 }
 
 const app = express();
 app.use(cors({ origin: true }));
-app.use(express.json());
+app.use(express.json({ limit: "10mb" })); // 이미지 base64 업로드용
 
 /**
  * POST /auth/naver
@@ -205,7 +224,7 @@ app.post("/auth/google/code", async (req, res) => {
     if (!code) {
       return res.status(400).json({ error: "code required" });
     }
-
+    // 환경 변수 사용 (Firebase Functions v2 - process.env)
     const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
     const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
@@ -412,6 +431,120 @@ app.get("/", (req, res) => {
 });
 
 /**
+ * POST /upload-image
+ * body: { base64: string, path: string, contentType?: string }
+ * header: Authorization: Bearer <firebase-id-token>
+ * RN에서 ArrayBuffer/Blob 미지원으로 클라이언트 업로드 대신 서버 업로드 사용 (v1)
+ */
+app.post("/upload-image", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Authorization Bearer 토큰이 필요합니다." });
+    }
+    const idToken = authHeader.slice(7);
+
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    const uid = decoded.uid;
+
+    const { base64, path, contentType = "image/jpeg" } = req.body || {};
+    if (!base64 || !path) {
+      return res.status(400).json({ error: "base64, path가 필요합니다." });
+    }
+
+    // path가 해당 uid 소유 경로인지 검증 (spaces/{uid}/, storage-requests/{uid}/, community/{uid}/, requests/{uid}/)
+    const allowedPrefixes = [
+      `spaces/${uid}/`,
+      `storage-requests/${uid}/`,
+      `community/${uid}/`,
+      `requests/${uid}/`,
+    ];
+    const allowed = allowedPrefixes.some((p) => path.startsWith(p));
+    if (!allowed) {
+      return res.status(403).json({ error: "업로드 경로가 허용되지 않습니다." });
+    }
+
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(path);
+    const buffer = Buffer.from(base64, "base64");
+    if (buffer.length === 0) {
+      return res.status(400).json({ error: "base64 디코딩 결과가 비어있습니다. 요청 크기 제한을 확인하세요." });
+    }
+    await file.save(buffer, {
+      contentType,
+      metadata: { cacheControl: "public, max-age=31536000" },
+    });
+
+    return res.json({ path });
+  } catch (e: any) {
+    console.error("upload-image error:", e);
+    return res.status(500).json({ error: e?.message ?? "업로드 실패" });
+  }
+});
+
+/**
+ * POST /call/masked
+ * body: { chatId: string }
+ * header: Authorization: Bearer <firebase-id-token>
+ * 약속 확정 후 채팅 상대와 안심번호(050 등)로 연결. 실제 연동 전까지 501 반환.
+ * 연동 시: users/{uid}.phoneNumber 필요, MTONET 등 API 호출 후 numberToDial 반환.
+ */
+app.post("/call/masked", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Authorization Bearer 토큰이 필요합니다." });
+    }
+    const idToken = authHeader.slice(7);
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    const callerUid = decoded.uid;
+
+    const { chatId } = req.body || {};
+    if (!chatId || typeof chatId !== "string") {
+      return res.status(400).json({ error: "chatId가 필요합니다." });
+    }
+
+    const chatSnap = await admin.firestore().doc(`chats/${chatId}`).get();
+    if (!chatSnap.exists) {
+      return res.status(404).json({ error: "채팅방을 찾을 수 없습니다." });
+    }
+    const chat = chatSnap.data()!;
+    const { ownerId, customerId } = chat;
+    if (callerUid !== ownerId && callerUid !== customerId) {
+      return res.status(403).json({ error: "해당 채팅방 참여자가 아닙니다." });
+    }
+    const calleeUid = callerUid === ownerId ? customerId : ownerId;
+
+    const callerSnap = await admin.firestore().doc(`users/${callerUid}`).get();
+    const calleeSnap = await admin.firestore().doc(`users/${calleeUid}`).get();
+    const callerPhone = callerSnap.data()?.phoneNumber ?? callerSnap.data()?.phone ?? null;
+    const calleePhone = calleeSnap.data()?.phoneNumber ?? calleeSnap.data()?.phone ?? null;
+
+    if (!callerPhone || typeof callerPhone !== "string") {
+      return res.status(400).json({
+        error: "통화하려면 마이페이지에서 전화번호를 등록해 주세요.",
+      });
+    }
+    if (!calleePhone || typeof calleePhone !== "string") {
+      return res.status(400).json({
+        error: "상대방이 전화번호를 등록하지 않아 연결할 수 없습니다.",
+      });
+    }
+
+    // TODO: MTONET(엠투넷) 등 안심번호 API 연동 시 여기서 호출 후 numberToDial 반환
+    // 예: const { numberToDial } = await callMaskedCallApi(callerPhone, calleePhone);
+    // return res.json({ numberToDial });
+    return res.status(501).json({
+      error: "안심번호 서비스 연동 준비 중입니다.",
+      code: "NOT_CONFIGURED",
+    });
+  } catch (e: any) {
+    console.error("call/masked error:", e);
+    return res.status(500).json({ error: e?.message ?? "통화 연결 처리에 실패했습니다." });
+  }
+});
+
+/**
  * GET /auth/google/callback
  * Google OAuth 리디렉션 핸들러
  * code를 받아서 앱으로 리디렉션하는 HTML 페이지 반환
@@ -507,10 +640,232 @@ app.get("/auth/google/callback", async (req, res) => {
   }
 });
 
+/**
+ * POST /delete-test-neighborhood-chat
+ * body: { "confirm": "delete test neighborhood chat with lastMessage 그래안녕" }
+ * 동네부탁 채팅 중 마지막 메시지가 "그래안녕"인 채팅과 연결된 동네부탁 문서를 삭제합니다.
+ * 한 번 실행 후 이 엔드포인트/코드는 제거해도 됩니다.
+ */
+app.post("/delete-test-neighborhood-chat", async (req, res) => {
+  try {
+    const confirm = req.body?.confirm;
+    if (confirm !== "delete test neighborhood chat with lastMessage 그래안녕") {
+      return res.status(400).json({
+        error: "body.confirm 값이 일치하지 않습니다. 삭제하려면 해당 문자열을 정확히 보내주세요.",
+      });
+    }
+
+    const firestore = admin.firestore();
+    const chatsSnap = await firestore
+      .collection("chats")
+      .where("lastMessage", "==", "그래안녕")
+      .get();
+
+    const deleted: { chatIds: string[]; requestIds: string[] } = { chatIds: [], requestIds: [] };
+
+    for (const chatDoc of chatsSnap.docs) {
+      const data = chatDoc.data();
+      const requestId = data.requestId as string | undefined;
+      if (!requestId) continue;
+
+      const chatId = chatDoc.id;
+
+      // messages 서브컬렉션 전체 삭제
+      const messagesSnap = await firestore.collection("chats").doc(chatId).collection("messages").get();
+      const batch = firestore.batch();
+      messagesSnap.docs.forEach((d) => batch.delete(d.ref));
+      batch.delete(chatDoc.ref);
+      await batch.commit();
+
+      deleted.chatIds.push(chatId);
+
+      // 연결된 동네부탁 문서 삭제
+      const requestRef = firestore.collection("neighborhoodRequests").doc(requestId);
+      const requestSnap = await requestRef.get();
+      if (requestSnap.exists) {
+        await requestRef.delete();
+        deleted.requestIds.push(requestId);
+      }
+    }
+
+    return res.json({
+      message: "삭제 완료",
+      deleted,
+    });
+  } catch (e: any) {
+    console.error("delete-test-neighborhood-chat error:", e);
+    return res.status(500).json({ error: e?.message ?? "삭제 중 오류가 발생했습니다." });
+  }
+});
+
 // ✅ 서울 리전(asia-northeast3)으로 Express 앱 전체를 하나의 Function으로 export
 export const api = functions.https.onRequest(
   {
     region: "asia-northeast3",
   },
   app
+);
+
+const db = admin.firestore();
+
+/**
+ * 즐겨찾기 추가 시 해당 공간의 favoriteCount +1 (클라이언트 권한 무관)
+ */
+export const onFavoriteCreated = onDocumentCreated(
+  {
+    document: "users/{userId}/favorites/{favoriteId}",
+    region: "asia-northeast3",
+  },
+  async (event) => {
+    const spaceId = event.data?.data()?.spaceId;
+    if (!spaceId || typeof spaceId !== "string") return;
+    try {
+      await db.doc(`spaces/${spaceId}`).update({
+        favoriteCount: admin.firestore.FieldValue.increment(1),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      console.error("onFavoriteCreated favoriteCount increment failed:", e);
+    }
+  }
+);
+
+/**
+ * 즐겨찾기 제거 시 해당 공간의 favoriteCount -1
+ */
+export const onFavoriteDeleted = onDocumentDeleted(
+  {
+    document: "users/{userId}/favorites/{favoriteId}",
+    region: "asia-northeast3",
+  },
+  async (event) => {
+    const spaceId = event.data?.data()?.spaceId;
+    if (!spaceId || typeof spaceId !== "string") return;
+    try {
+      await db.doc(`spaces/${spaceId}`).update({
+        favoriteCount: admin.firestore.FieldValue.increment(-1),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      console.error("onFavoriteDeleted favoriteCount decrement failed:", e);
+    }
+  }
+);
+
+/** 마음공간 점수 계산 (클라이언트 constants/mindSpace.ts와 동일 로직) */
+const MIND_SPACE_DEFAULT = 50;
+const MIND_SPACE_MIN = 0;
+const MIND_SPACE_MAX = 100;
+const MAX_CHANGE_PER_TX = 3;
+
+const SCORE_DELTA: { min: number; max: number; delta: number }[] = [
+  { min: 5.0, max: 5.0, delta: 0.3 },
+  { min: 4.0, max: 4.9, delta: 0.2 },
+  { min: 3.0, max: 3.9, delta: 0.1 },
+  { min: 2.0, max: 2.9, delta: -0.1 },
+  { min: 1.0, max: 1.9, delta: -0.2 },
+  { min: 0, max: 0.9, delta: -0.2 },
+];
+
+function calcMindSpaceDelta(scores: number[]): number {
+  if (scores.length === 0) return 0;
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const entry = SCORE_DELTA.find((r) => avg >= r.min && avg <= r.max);
+  let delta = entry?.delta ?? 0;
+  delta = Math.max(
+    -MAX_CHANGE_PER_TX,
+    Math.min(MAX_CHANGE_PER_TX, delta)
+  );
+  return Math.round(delta * 10) / 10;
+}
+
+function applyMindSpaceDelta(current: number, delta: number): number {
+  const next = current + delta;
+  return Math.max(
+    MIND_SPACE_MIN,
+    Math.min(MIND_SPACE_MAX, Math.round(next * 10) / 10)
+  );
+}
+
+/**
+ * 트랜잭션에 평가가 반영되면 해당 사용자의 마음공간(mindSpace) 업데이트
+ */
+export const onTransactionEvaluationUpdated = onDocumentUpdated(
+  {
+    document: "transactions/{transactionId}",
+    region: "asia-northeast3",
+  },
+  async (event) => {
+    const after = event.data?.after?.data();
+    const before = event.data?.before?.data();
+    if (!after || !before) return;
+
+    // 구매자가 공간대여자 평가한 경우 → ownerId 사용자 mindSpace 갱신
+    if (
+      after.customerEvaluatedOwner === true &&
+      after.customerEvaluation &&
+      before.customerEvaluatedOwner !== true
+    ) {
+      const ev = after.customerEvaluation as {
+        schedule?: number;
+        storageCondition?: number;
+        manners?: number;
+      };
+      const scores = [ev.schedule, ev.storageCondition, ev.manners].filter(
+        (n): n is number => typeof n === "number"
+      );
+      if (scores.length > 0) {
+        const targetUid = after.ownerId as string;
+        try {
+          const userRef = db.doc(`users/${targetUid}`);
+          const userSnap = await userRef.get();
+          const current =
+            (userSnap.data()?.mindSpace as number) ?? MIND_SPACE_DEFAULT;
+          const delta = calcMindSpaceDelta(scores);
+          const next = applyMindSpaceDelta(current, delta);
+          await userRef.update({
+            mindSpace: next,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(
+            `mindSpace updated owner ${targetUid}: ${current} -> ${next} (delta ${delta})`
+          );
+        } catch (e) {
+          console.error("onTransactionEvaluationUpdated owner mindSpace:", e);
+        }
+      }
+    }
+
+    // 공간대여자가 사용자 평가한 경우 → customerId 사용자 mindSpace 갱신
+    if (
+      after.ownerEvaluatedCustomer === true &&
+      after.ownerEvaluation &&
+      before.ownerEvaluatedCustomer !== true
+    ) {
+      const ev = after.ownerEvaluation as { schedule?: number; manners?: number };
+      const scores = [ev.schedule, ev.manners].filter(
+        (n): n is number => typeof n === "number"
+      );
+      if (scores.length > 0) {
+        const targetUid = after.customerId as string;
+        try {
+          const userRef = db.doc(`users/${targetUid}`);
+          const userSnap = await userRef.get();
+          const current =
+            (userSnap.data()?.mindSpace as number) ?? MIND_SPACE_DEFAULT;
+          const delta = calcMindSpaceDelta(scores);
+          const next = applyMindSpaceDelta(current, delta);
+          await userRef.update({
+            mindSpace: next,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(
+            `mindSpace updated customer ${targetUid}: ${current} -> ${next} (delta ${delta})`
+          );
+        } catch (e) {
+          console.error("onTransactionEvaluationUpdated customer mindSpace:", e);
+        }
+      }
+    }
+  }
 );

@@ -1,5 +1,7 @@
 // app/(tabs)/profile.tsx
 import { Ionicons } from "@expo/vector-icons";
+import * as FileSystem from "expo-file-system/legacy";
+import * as ImagePicker from "expo-image-picker";
 import { Stack, useRouter } from "expo-router";
 import {
   collection,
@@ -10,12 +12,14 @@ import {
   getDoc,
   updateDoc,
   serverTimestamp,
+  Timestamp,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -29,21 +33,27 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth, db } from "../../firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import useKakaoLogin from "../../hooks/useKakaoLogin";
+import MindSpaceBadge from "../../components/MindSpaceBadge";
+import { uploadBase64ToStorage } from "../../utils/uploadImageToStorage";
+import { TERMS_URL, PRIVACY_URL } from "../../utils/termsContent";
 
 type UserProfile = {
   nickname?: string;
   name?: string;
   email?: string;
   profileImage?: string;
+  mindSpace?: number;
 };
 
 type Transaction = {
   id: string;
   type: "sell" | "buy";
   spaceTitle: string;
+  spaceId: string;
+  chatId: string;
   amount: number;
-  date: any;
-  status: "completed" | "in_progress" | "cancelled";
+  date: Timestamp | null;
+  status: "보관종료";
 };
 
 export default function ProfileScreen() {
@@ -57,6 +67,7 @@ export default function ProfileScreen() {
   const [newNickname, setNewNickname] = useState("");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [activeTab, setActiveTab] = useState<"profile" | "transactions" | "settings">("profile");
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -81,11 +92,19 @@ export default function ProfileScreen() {
       const userDoc = await getDoc(doc(db, "users", currentUser.uid));
       if (userDoc.exists()) {
         const userData = userDoc.data();
+        const mindSpace = userData.mindSpace ?? 50;
+        if (userData.mindSpace == null) {
+          updateDoc(doc(db, "users", currentUser.uid), {
+            mindSpace: 50,
+            updatedAt: serverTimestamp(),
+          }).catch(() => {});
+        }
         setProfile({
           nickname: userData.nickname,
           name: userData.name,
           email: userData.email,
-          profileImage: userData.profileImage,
+          profileImage: userData.profileImage ?? userData.photoURL,
+          mindSpace,
         });
         setNewNickname(userData.nickname || "");
       }
@@ -100,54 +119,42 @@ export default function ProfileScreen() {
     if (!currentUser) return;
 
     try {
-      // 판매 내역 (내가 등록한 공간에 대한 예약)
-      const spacesRef = collection(db, "spaces");
-      const mySpacesQuery = query(spacesRef, where("ownerId", "==", currentUser.uid));
-      const mySpacesSnapshot = await getDocs(mySpacesQuery);
-      const spaceIds = mySpacesSnapshot.docs.map((doc) => doc.id);
-
+      const transactionsRef = collection(db, "transactions");
+      const uid = currentUser.uid;
+      const [ownerSnap, customerSnap] = await Promise.all([
+        getDocs(query(transactionsRef, where("ownerId", "==", uid))),
+        getDocs(query(transactionsRef, where("customerId", "==", uid))),
+      ]);
       const transactionsList: Transaction[] = [];
+      const seen = new Set<string>();
 
-      // 채팅방에서 거래 정보 추출 (실제로는 별도 거래 컬렉션이 필요할 수 있음)
-      for (const spaceId of spaceIds) {
-        const chatsRef = collection(db, "chats");
-        const chatsQuery = query(chatsRef, where("spaceId", "==", spaceId));
-        const chatsSnapshot = await getDocs(chatsQuery);
-
-        chatsSnapshot.forEach((chatDoc) => {
-          const chatData = chatDoc.data();
-          if (chatData.status === "completed") {
-            transactionsList.push({
-              id: chatDoc.id,
-              type: "sell",
-              spaceTitle: chatData.spaceTitle || "공간",
-              amount: chatData.price || 0,
-              date: chatData.completedAt,
-              status: "completed",
-            });
-          }
+      const pushIfCompleted = (
+        docSnap: { id: string; data: () => Record<string, unknown> }
+      ) => {
+        const data = docSnap.data();
+        if (data.status !== "보관종료") return;
+        if (seen.has(docSnap.id)) return;
+        seen.add(docSnap.id);
+        const ownerId = data.ownerId as string;
+        transactionsList.push({
+          id: docSnap.id,
+          type: ownerId === uid ? "sell" : "buy",
+          spaceTitle: (data.spaceTitle as string) || "공간",
+          spaceId: (data.spaceId as string) || "",
+          chatId: (data.chatId as string) || "",
+          amount: 0,
+          date: (data.completedAt as Timestamp) ?? null,
+          status: "보관종료",
         });
-      }
+      };
 
-      // 구매 내역 (내가 예약한 공간)
-      const myChatsQuery = query(
-        collection(db, "chats"),
-        where("customerId", "==", currentUser.uid)
-      );
-      const myChatsSnapshot = await getDocs(myChatsQuery);
+      ownerSnap.docs.forEach((d) => pushIfCompleted(d));
+      customerSnap.docs.forEach((d) => pushIfCompleted(d));
 
-      myChatsSnapshot.forEach((chatDoc) => {
-        const chatData = chatDoc.data();
-        if (chatData.status === "completed") {
-          transactionsList.push({
-            id: chatDoc.id,
-            type: "buy",
-            spaceTitle: chatData.spaceTitle || "공간",
-            amount: chatData.price || 0,
-            date: chatData.completedAt,
-            status: "completed",
-          });
-        }
+      transactionsList.sort((a, b) => {
+        const ta = a.date?.toMillis?.() ?? 0;
+        const tb = b.date?.toMillis?.() ?? 0;
+        return tb - ta;
       });
 
       setTransactions(transactionsList);
@@ -170,6 +177,46 @@ export default function ProfileScreen() {
     } catch (e) {
       console.error("닉네임 변경 실패:", e);
       Alert.alert("오류", "닉네임 변경에 실패했습니다.");
+    }
+  };
+
+  const pickProfileImage = async () => {
+    if (!currentUser) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("권한 필요", "사진을 선택하려면 사진 라이브러리 권한이 필요합니다.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+
+      setUploadingPhoto(true);
+      const asset = result.assets[0];
+      let base64: string | null = asset.base64 ?? null;
+      if (!base64) {
+        base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: "base64" });
+      }
+      if (!base64) throw new Error("이미지 데이터를 읽을 수 없습니다.");
+
+      const path = `users/${currentUser.uid}/profile.jpg`;
+      const url = await uploadBase64ToStorage(base64, path, "image/jpeg");
+      await updateDoc(doc(db, "users", currentUser.uid), {
+        profileImage: url,
+        updatedAt: serverTimestamp(),
+      });
+      setProfile((p) => (p ? { ...p, profileImage: url } : null));
+      Alert.alert("완료", "프로필 사진이 변경되었습니다.");
+    } catch (e: any) {
+      console.error("프로필 사진 업로드 실패:", e);
+      Alert.alert("오류", e?.message ?? "프로필 사진 변경에 실패했습니다.");
+    } finally {
+      setUploadingPhoto(false);
     }
   };
 
@@ -214,7 +261,7 @@ export default function ProfileScreen() {
             headerTitleStyle: { fontWeight: "700", fontSize: 18 },
           }}
         />
-        <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.container}>
           <View style={styles.loginPromptContainer}>
             <Ionicons name="person-outline" size={64} color="#D1D5DB" />
             <Text style={styles.emptyText}>로그인이 필요합니다</Text>
@@ -371,26 +418,55 @@ export default function ProfileScreen() {
           {activeTab === "profile" && (
             <View style={styles.profileSection}>
               <View style={styles.profileHeader}>
-                {profile?.profileImage ? (
-                  <Image
-                    source={{ uri: profile.profileImage }}
-                    style={styles.profileImage}
-                  />
-                ) : (
-                  <View style={[styles.profileImage, styles.profileImagePlaceholder]}>
-                    <Ionicons name="person" size={40} color="#D1D5DB" />
+                <View style={styles.profileHeaderLeft}>
+                  <Pressable
+                    onPress={pickProfileImage}
+                    disabled={uploadingPhoto}
+                    style={styles.profileImageWrap}
+                  >
+                    {profile?.profileImage ? (
+                      <Image
+                        source={{ uri: profile.profileImage }}
+                        style={styles.profileImage}
+                      />
+                    ) : (
+                      <View style={[styles.profileImage, styles.profileImagePlaceholder]}>
+                        <Ionicons name="person" size={40} color="#D1D5DB" />
+                        <View style={styles.profileImageAddWrap}>
+                          <Text style={styles.profileImageAddText}>+</Text>
+                        </View>
+                      </View>
+                    )}
+                    {uploadingPhoto && (
+                      <View style={styles.profileImageOverlay}>
+                        <ActivityIndicator size="small" color="#fff" />
+                      </View>
+                    )}
+                  </Pressable>
+                  <View style={styles.profileInfo}>
+                    <Text style={styles.profileName}>
+                      {profile?.nickname || profile?.name || "사용자"}
+                    </Text>
+                    {profile?.email && (
+                      <Text style={styles.profileEmail}>{profile.email}</Text>
+                    )}
+                  </View>
+                </View>
+                {profile?.mindSpace != null && (
+                  <View style={styles.mindSpaceBlock}>
+                    <MindSpaceBadge mindSpace={profile.mindSpace} size="small" />
+                    <Text style={styles.mindSpaceLabel}>마음공간</Text>
                   </View>
                 )}
-                <View style={styles.profileInfo}>
-                  <Text style={styles.profileName}>
-                    {profile?.nickname || profile?.name || "사용자"}
-                  </Text>
-                  {profile?.email && (
-                    <Text style={styles.profileEmail}>{profile.email}</Text>
-                  )}
-                </View>
               </View>
 
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => router.push("/my-spaces")}
+              >
+                <Text style={styles.menuItemText}>내 공간 관리</Text>
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </Pressable>
               <Pressable
                 style={styles.menuItem}
                 onPress={() => setNicknameModalVisible(true)}
@@ -398,14 +474,11 @@ export default function ProfileScreen() {
                 <Text style={styles.menuItemText}>닉네임 변경</Text>
                 <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
               </Pressable>
-
               <Pressable
                 style={styles.menuItem}
-                onPress={() => {
-                  Alert.alert("준비중", "결제카드 관리 기능은 준비중입니다.");
-                }}
+                onPress={() => router.push("/favorites")}
               >
-                <Text style={styles.menuItemText}>결제카드 관리</Text>
+                <Text style={styles.menuItemText}>즐겨찾는 장소</Text>
                 <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
               </Pressable>
             </View>
@@ -419,20 +492,25 @@ export default function ProfileScreen() {
               {transactions
                 .filter((t) => t.type === "sell")
                 .map((transaction) => (
-                  <View key={transaction.id} style={styles.transactionItem}>
+                  <Pressable
+                    key={transaction.id}
+                    style={styles.transactionItem}
+                    onPress={() =>
+                      transaction.spaceId &&
+                      router.push(`/space/${transaction.spaceId}/chat`)
+                    }
+                  >
                     <View style={styles.transactionInfo}>
                       <Text style={styles.transactionTitle}>
                         {transaction.spaceTitle}
                       </Text>
                       <Text style={styles.transactionDate}>
-                        {transaction.date?.toDate?.().toLocaleDateString("ko-KR") ||
+                        {transaction.date?.toDate?.().toLocaleDateString("ko-KR") ??
                           "날짜 없음"}
                       </Text>
                     </View>
-                    <Text style={styles.transactionAmount}>
-                      +{transaction.amount.toLocaleString()}원
-                    </Text>
-                  </View>
+                    <Text style={styles.transactionAmount}>보관종료</Text>
+                  </Pressable>
                 ))}
 
               <View style={styles.sectionHeader}>
@@ -441,25 +519,32 @@ export default function ProfileScreen() {
               {transactions
                 .filter((t) => t.type === "buy")
                 .map((transaction) => (
-                  <View key={transaction.id} style={styles.transactionItem}>
+                  <Pressable
+                    key={transaction.id}
+                    style={styles.transactionItem}
+                    onPress={() =>
+                      transaction.spaceId &&
+                      router.push(`/space/${transaction.spaceId}/chat`)
+                    }
+                  >
                     <View style={styles.transactionInfo}>
                       <Text style={styles.transactionTitle}>
                         {transaction.spaceTitle}
                       </Text>
                       <Text style={styles.transactionDate}>
-                        {transaction.date?.toDate?.().toLocaleDateString("ko-KR") ||
+                        {transaction.date?.toDate?.().toLocaleDateString("ko-KR") ??
                           "날짜 없음"}
                       </Text>
                     </View>
                     <Text
                       style={[
                         styles.transactionAmount,
-                        { color: "#EF4444" },
+                        { color: "#059669" },
                       ]}
                     >
-                      -{transaction.amount.toLocaleString()}원
+                      보관종료
                     </Text>
-                  </View>
+                  </Pressable>
                 ))}
 
               {transactions.length === 0 && (
@@ -487,9 +572,7 @@ export default function ProfileScreen() {
 
               <Pressable
                 style={styles.menuItem}
-                onPress={() => {
-                  Alert.alert("준비중", "이용약관 기능은 준비중입니다.");
-                }}
+                onPress={() => Linking.openURL(TERMS_URL)}
               >
                 <Text style={styles.menuItemText}>이용약관</Text>
                 <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
@@ -497,9 +580,7 @@ export default function ProfileScreen() {
 
               <Pressable
                 style={styles.menuItem}
-                onPress={() => {
-                  Alert.alert("준비중", "개인정보처리방침 기능은 준비중입니다.");
-                }}
+                onPress={() => Linking.openURL(PRIVACY_URL)}
               >
                 <Text style={styles.menuItemText}>개인정보처리방침</Text>
                 <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
@@ -650,18 +731,61 @@ const styles = StyleSheet.create({
   profileHeader: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
+  },
+  profileHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  mindSpaceBlock: {
+    alignItems: "center",
+  },
+  mindSpaceLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 4,
+  },
+  profileImageWrap: {
+    marginRight: 16,
+    position: "relative",
   },
   profileImage: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    marginRight: 16,
   },
   profileImagePlaceholder: {
     backgroundColor: "#F3F4F6",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+  },
+  profileImageAddWrap: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  profileImageAddText: {
+    fontSize: 36,
+    color: "rgba(0,0,0,0.2)",
+    fontWeight: "300",
+  },
+  profileImageOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 40,
+    backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -700,8 +824,8 @@ const styles = StyleSheet.create({
     borderBottomColor: "#E5E7EB",
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "400",
     color: "#111827",
   },
   transactionItem: {

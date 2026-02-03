@@ -9,6 +9,24 @@ service firebase.storage {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
     
+    // storage-requests: 인증된 사용자가 본인 폴더에 업로드
+    match /storage-requests/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // community: 동네생활 게시글 이미지
+    match /community/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // requests: 동네부탁 이미지
+    match /requests/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
     // 다른 경로는 기본적으로 거부
     match /{allPaths=**} {
       allow read, write: if false;

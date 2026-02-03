@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" rx="220" ry="220" fill="#2477FF"/>
+  <!-- P for PocketSpace: thick letter P, white -->
+  <path d="M 360 280 L 360 744 L 420 744 L 420 520 L 620 520 C 720 520 760 450 760 400 C 760 350 720 280 620 280 Z M 420 340 L 660 340 C 700 340 700 400 660 400 L 420 400 Z" fill="white"/>
+</svg>

@@ -1,10 +1,11 @@
 // app/my-spaces.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, doc, deleteDoc, query, where, getDocs } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Pressable,
@@ -20,6 +21,8 @@ type MySpace = {
   title: string;
   address: string;
   pricePerHour: number;
+  priceNegotiable?: boolean;
+  placeType?: string | null;
   description?: string;
   images?: string[];
   tags?: string[];
@@ -61,6 +64,8 @@ export default function MySpacesScreen() {
           title: data.title ?? "공간",
           address: data.address ?? "",
           pricePerHour: Number(data.pricePerHour ?? 0),
+          priceNegotiable: data.priceNegotiable === true,
+          placeType: data.placeType ?? data.tags?.[0] ?? null,
           description: data.description ?? "",
           images: data.images ?? [],
           tags: data.tags ?? [],
@@ -89,6 +94,29 @@ export default function MySpacesScreen() {
 
   const goToEdit = (id: string) => {
     router.push(`/space/${id}/edit`);
+  };
+
+  const handleDelete = (item: MySpace) => {
+    Alert.alert(
+      "공간 삭제",
+      `"${item.title}"을(를) 삭제하시겠습니까?`,
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "삭제",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, "spaces", item.id));
+              setSpaces((prev) => prev.filter((s) => s.id !== item.id));
+            } catch (e: any) {
+              console.error("삭제 실패:", e);
+              Alert.alert("오류", "삭제에 실패했습니다.");
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (!auth.currentUser) {
@@ -162,18 +190,30 @@ export default function MySpacesScreen() {
                 </Text>
                 <View style={styles.spaceFooter}>
                   <Text style={styles.spacePrice}>
-                    {item.pricePerHour.toLocaleString()}원/시간
+                    {item.priceNegotiable ? "금액협의" : `${item.pricePerHour.toLocaleString()}원/시간`}
                   </Text>
-                  <Pressable
-                    style={styles.editButton}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      goToEdit(item.id);
-                    }}
-                  >
-                    <Ionicons name="create-outline" size={18} color="#2563EB" />
-                    <Text style={styles.editButtonText}>수정</Text>
-                  </Pressable>
+                  <View style={styles.actionButtons}>
+                    <Pressable
+                      style={styles.editButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        goToEdit(item.id);
+                      }}
+                    >
+                      <Ionicons name="create-outline" size={18} color="#2563EB" />
+                      <Text style={styles.editButtonText}>수정</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.deleteButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        handleDelete(item);
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                      <Text style={styles.deleteButtonText}>삭제</Text>
+                    </Pressable>
+                  </View>
                 </View>
               </View>
             </Pressable>
@@ -242,6 +282,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#2563EB",
   },
+  actionButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   editButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -254,6 +299,20 @@ const styles = StyleSheet.create({
   editButtonText: {
     fontSize: 14,
     color: "#2563EB",
+    fontWeight: "600",
+  },
+  deleteButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: "#FEF2F2",
+  },
+  deleteButtonText: {
+    fontSize: 14,
+    color: "#DC2626",
     fontWeight: "600",
   },
   emptyText: {

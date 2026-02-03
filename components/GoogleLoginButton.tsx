@@ -14,16 +14,11 @@ const discovery = {
   tokenEndpoint: "https://oauth2.googleapis.com/token",
 };
 
-const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!;
-// Firebase Functions 엔드포인트를 리디렉션 URI로 사용
-// Cloud Run URL 사용: https://api-iqsbggf5na-du.a.run.app
-const FUNCTIONS_ENDPOINT = process.env.EXPO_PUBLIC_FUNCTIONS_ENDPOINT 
+const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? "";
+const FUNCTIONS_ENDPOINT = process.env.EXPO_PUBLIC_FUNCTIONS_ENDPOINT
   ? (process.env.EXPO_PUBLIC_FUNCTIONS_ENDPOINT ?? "").replace(/\/+$/, "")
   : "https://api-iqsbggf5na-du.a.run.app";
 const GOOGLE_REDIRECT_URI = `${FUNCTIONS_ENDPOINT}/auth/google/callback`;
-
-console.log("🔍 GOOGLE_REDIRECT_URI:", GOOGLE_REDIRECT_URI);
-console.log("🔍 FUNCTIONS_ENDPOINT:", FUNCTIONS_ENDPOINT);
 
 type Props = {
   onSuccess?: () => void | Promise<void>;
@@ -37,7 +32,7 @@ export default function GoogleLoginButton({ onSuccess }: Props) {
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
-      clientId: GOOGLE_CLIENT_ID,
+      clientId: GOOGLE_CLIENT_ID || "placeholder",
       redirectUri,
       responseType: AuthSession.ResponseType.Code,
       scopes: ["profile", "email"],
@@ -189,17 +184,25 @@ export default function GoogleLoginButton({ onSuccess }: Props) {
   }, [response, redirectUri, state, request]);
 
   const handlePress = async () => {
-    if (!request) {
+    Toast.show({ type: "info", text1: "구글 로그인 창을 여는 중..." });
+
+    if (!GOOGLE_CLIENT_ID) {
+      Toast.show({
+        type: "error",
+        text1: "구글 로그인 설정 필요",
+        text2: ".env에 EXPO_PUBLIC_GOOGLE_CLIENT_ID를 설정해주세요.",
+      });
+      return;
+    }
+    if (!request || request.clientId === "placeholder") {
       Toast.show({
         type: "error",
         text1: "로그인 준비 중",
-        text2: "잠시 후 다시 시도해주세요.",
+        text2: "잠시 후 다시 눌러주세요.",
       });
       return;
     }
     try {
-      console.log("🔍 구글 로그인 버튼 클릭 - promptAsync 시작");
-      console.log("🔍 request URL:", request.url);
       
       // promptAsync를 호출하되, 타임아웃 설정
       const promptPromise = promptAsync();

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" rx="220" ry="220" fill="#2477FF"/>
+  <!-- isometric box, white (your cube style) -->
+  <path d="M 320 580 L 512 480 L 704 580 L 512 680 Z" fill="white"/>
+  <path d="M 512 480 L 512 680 L 704 580 L 704 380 Z" fill="rgba(255,255,255,0.88)"/>
+  <path d="M 320 580 L 320 380 L 512 480 L 512 680 Z" fill="rgba(255,255,255,0.75)"/>
+  <!-- tape strip across top (your cardboard ref) -->
+  <path d="M 340 400 L 684 400 L 684 440 L 340 440 Z" fill="rgba(255,255,255,0.95)"/>
+  <path d="M 480 380 L 544 380 L 544 460 L 480 460 Z" fill="#1a5fcc"/>
+</svg>

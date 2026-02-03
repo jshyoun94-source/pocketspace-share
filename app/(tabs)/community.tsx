@@ -34,8 +34,9 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { auth, db, storage } from "../../firebase";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { auth, db } from "../../firebase";
+import * as FileSystem from "expo-file-system/legacy";
+import { uploadBase64ToStorage } from "../../utils/uploadImageToStorage";
 import * as ImagePicker from "expo-image-picker";
 import { onAuthStateChanged } from "firebase/auth";
 
@@ -256,7 +257,7 @@ export default function CommunityScreen() {
   const pickImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],
         allowsMultipleSelection: true,
         quality: 0.8,
       });
@@ -289,12 +290,16 @@ export default function CommunityScreen() {
       const uploadedImageUrls: string[] = [];
       for (const localUri of selectedImages) {
         try {
-          const response = await fetch(localUri);
-          const blob = await response.blob();
-          const fileName = `community/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
-          const imageRef = ref(storage, fileName);
-          await uploadBytes(imageRef, blob);
-          const downloadURL = await getDownloadURL(imageRef);
+          const base64 = await FileSystem.readAsStringAsync(localUri, {
+            encoding: "base64",
+          });
+          if (!base64) continue;
+          const fileName = `community/${currentUser.uid}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+          const downloadURL = await uploadBase64ToStorage(
+            base64,
+            fileName,
+            "image/jpeg"
+          );
           uploadedImageUrls.push(downloadURL);
         } catch (e) {
           console.error("이미지 업로드 실패:", e);
@@ -432,7 +437,14 @@ export default function CommunityScreen() {
           <FlatList
             data={posts}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[
+              styles.listContent,
+              {
+                paddingBottom:
+                  insets.bottom +
+                  (Platform.OS === "ios" ? 200 : 140),
+              },
+            ]}
             renderItem={({ item }) => (
               <View style={styles.postCard}>
                 <View style={styles.postHeader}>

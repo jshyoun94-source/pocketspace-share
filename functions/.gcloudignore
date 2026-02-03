@@ -1,0 +1,11 @@
+# iOS 네이티브 빌드 - Cloud Functions에 불필요
+ios/
+
+# 개발/테스트
+*.local
+.eslintrc.js
+tsconfig.dev.json
+app.json
+
+# 소스맵 (선택)
+lib/**/*.map

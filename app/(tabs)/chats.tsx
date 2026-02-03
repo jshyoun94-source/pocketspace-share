@@ -3,15 +3,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
 import {
   collection,
+  doc,
   query,
   where,
   getDocs,
   onSnapshot,
   Timestamp,
 } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Pressable,
@@ -23,6 +25,20 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth, db } from "../../firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import { EMOJIS, formatLastMessageAsSticker } from "../../constants/emojis";
+
+// 탭바(bottom:52+height:88) — 목록이 탭바에 가리지 않도록
+const TAB_BAR_BOTTOM = Platform.OS === "ios" ? 52 : 28;
+const TAB_BAR_HEIGHT = Platform.OS === "ios" ? 88 : 64;
+const BOTTOM_INSET = TAB_BAR_BOTTOM + TAB_BAR_HEIGHT;
+
+type TxStatusLabel =
+  | "보관신청중"
+  | "약속중"
+  | "보관중"
+  | "보관종료"
+  | "거절됨"
+  | null;
 
 type ChatRoom = {
   id: string;
@@ -34,7 +50,10 @@ type ChatRoom = {
   lastMessage?: string;
   lastMessageTime?: Timestamp;
   unreadCount: number;
-  role: "owner" | "customer"; // 현재 사용자의 역할
+  role: "owner" | "customer";
+  leftByOwner?: boolean;
+  leftByCustomer?: boolean;
+  lastTxStatus?: TxStatusLabel;
 };
 
 export default function ChatsScreen() {
@@ -43,6 +62,7 @@ export default function ChatsScreen() {
   const [currentUser, setCurrentUser] = useState(auth.currentUser);
   const [chats, setChats] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
+  const unsubRef = useRef<(() => void) | null>(null);
   const [filter, setFilter] = useState<
     "all" | "selling" | "buying" | "unread"
   >("all");
@@ -54,7 +74,7 @@ export default function ChatsScreen() {
     return unsubscribe;
   }, []);
 
-  // 채팅방 목록 로드
+  // 채팅방 목록 로드 (로그인 직후 토큰 전파 지연 방지를 위해 약간 지연 후 구독)
   useEffect(() => {
     if (!currentUser) {
       setChats([]);
@@ -78,6 +98,7 @@ export default function ChatsScreen() {
 
         ownerChats.forEach((docSnap) => {
           const data = docSnap.data();
+          if (data.leftByOwner === true) return;
           chatList.push({
             id: docSnap.id,
             spaceId: data.spaceId,
@@ -87,8 +108,11 @@ export default function ChatsScreen() {
             customerId: data.customerId,
             lastMessage: data.lastMessage,
             lastMessageTime: data.lastMessageTime || data.updatedAt || data.createdAt,
-            unreadCount: data.unreadCount || 0,
+            unreadCount: data.unreadByOwner ?? data.unreadCount ?? 0,
             role: "owner",
+            leftByOwner: data.leftByOwner,
+            leftByCustomer: data.leftByCustomer,
+            lastTxStatus: data.lastTxStatus ?? null,
           });
         });
 
@@ -101,6 +125,7 @@ export default function ChatsScreen() {
         const customerChats = await getDocs(customerQ);
         customerChats.forEach((docSnap) => {
           const data = docSnap.data();
+          if (data.leftByCustomer === true) return;
           chatList.push({
             id: docSnap.id,
             spaceId: data.spaceId,
@@ -110,8 +135,11 @@ export default function ChatsScreen() {
             customerId: data.customerId,
             lastMessage: data.lastMessage,
             lastMessageTime: data.lastMessageTime || data.updatedAt || data.createdAt,
-            unreadCount: data.unreadCount || 0,
+            unreadCount: data.unreadByCustomer ?? data.unreadCount ?? 0,
             role: "customer",
+            leftByOwner: data.leftByOwner,
+            leftByCustomer: data.leftByCustomer,
+            lastTxStatus: data.lastTxStatus ?? null,
           });
         });
 
@@ -142,45 +170,43 @@ export default function ChatsScreen() {
 
     loadChats();
 
-    // 실시간 업데이트 (별도로 관리)
-    const chatsRef = collection(db, "chats");
-    const ownerQ = query(
-      chatsRef,
-      where("ownerId", "==", currentUser.uid)
-    );
-
-    const customerQ = query(
-      chatsRef,
-      where("customerId", "==", currentUser.uid)
-    );
-
-    let ownerChats: ChatRoom[] = [];
-    let customerChats: ChatRoom[] = [];
-
-    const updateChatList = () => {
-      const allChats = [...ownerChats, ...customerChats];
-      // 중복 제거 (같은 채팅방이 owner와 customer 모두에 있을 수 있음)
-      const uniqueChats = allChats.filter(
-        (chat, index, self) => index === self.findIndex((c) => c.id === chat.id)
+    // 로그인 직후 Firestore 권한 토큰 전파 지연 시 permission-denied가 날 수 있어, 짧게 지연 후 구독
+    const timer = setTimeout(() => {
+      const chatsRef = collection(db, "chats");
+      const ownerQ = query(
+        chatsRef,
+        where("ownerId", "==", currentUser.uid)
       );
 
-      // 최신 메시지 순으로 정렬
-      uniqueChats.sort((a, b) => {
-        const timeA = a.lastMessageTime?.toMillis?.() || a.lastMessageTime?.seconds || 0;
-        const timeB = b.lastMessageTime?.toMillis?.() || b.lastMessageTime?.seconds || 0;
-        return timeB - timeA;
-      });
+      const customerQ = query(
+        chatsRef,
+        where("customerId", "==", currentUser.uid)
+      );
 
-      setChats(uniqueChats);
-    };
+      let ownerChats: ChatRoom[] = [];
+      let customerChats: ChatRoom[] = [];
 
-    const unsubscribeOwner = onSnapshot(
-      ownerQ,
-      (snapshot) => {
-        ownerChats = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          ownerChats.push({
+      const updateChatList = () => {
+        const allChats = [...ownerChats, ...customerChats];
+        const uniqueChats = allChats.filter(
+          (chat, index, self) => index === self.findIndex((c) => c.id === chat.id)
+        );
+        uniqueChats.sort((a, b) => {
+          const timeA = a.lastMessageTime?.toMillis?.() || a.lastMessageTime?.seconds || 0;
+          const timeB = b.lastMessageTime?.toMillis?.() || b.lastMessageTime?.seconds || 0;
+          return timeB - timeA;
+        });
+        setChats(uniqueChats);
+      };
+
+      const unsubscribeOwner = onSnapshot(
+        ownerQ,
+        (snapshot) => {
+          ownerChats = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (data.leftByOwner === true) return;
+            ownerChats.push({
             id: docSnap.id,
             spaceId: data.spaceId,
             spaceTitle: data.spaceTitle || "공간",
@@ -189,27 +215,32 @@ export default function ChatsScreen() {
             customerId: data.customerId,
             lastMessage: data.lastMessage,
             lastMessageTime: data.lastMessageTime || data.updatedAt || data.createdAt,
-            unreadCount: data.unreadCount || 0,
+            unreadCount: data.unreadByOwner ?? data.unreadCount ?? 0,
             role: "owner",
+            leftByOwner: data.leftByOwner,
+            leftByCustomer: data.leftByCustomer,
+            lastTxStatus: data.lastTxStatus ?? null,
           });
         });
         updateChatList();
       },
-      (error) => {
-        console.error("❌ owner 채팅 실시간 업데이트 오류:", error);
-        console.error("오류 코드:", error?.code);
-        console.error("오류 메시지:", error?.message);
-        // 오류가 발생해도 기존 데이터는 유지
-      }
-    );
+      (error: any) => {
+        if (error?.code === "permission-denied") {
+          setChats([]);
+          return;
+        }
+        console.error("❌ owner 채팅 실시간 업데이트 오류:", error?.code, error?.message);
+        }
+      );
 
-    const unsubscribeCustomer = onSnapshot(
-      customerQ,
-      (snapshot) => {
-        customerChats = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          customerChats.push({
+      const unsubscribeCustomer = onSnapshot(
+        customerQ,
+        (snapshot) => {
+          customerChats = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (data.leftByCustomer === true) return;
+            customerChats.push({
             id: docSnap.id,
             spaceId: data.spaceId,
             spaceTitle: data.spaceTitle || "공간",
@@ -218,23 +249,33 @@ export default function ChatsScreen() {
             customerId: data.customerId,
             lastMessage: data.lastMessage,
             lastMessageTime: data.lastMessageTime || data.updatedAt || data.createdAt,
-            unreadCount: data.unreadCount || 0,
+            unreadCount: data.unreadByCustomer ?? data.unreadCount ?? 0,
             role: "customer",
+            leftByOwner: data.leftByOwner,
+            leftByCustomer: data.leftByCustomer,
+            lastTxStatus: data.lastTxStatus ?? null,
           });
         });
         updateChatList();
       },
-      (error) => {
-        console.error("❌ customer 채팅 실시간 업데이트 오류:", error);
-        console.error("오류 코드:", error?.code);
-        console.error("오류 메시지:", error?.message);
-        // 오류가 발생해도 기존 데이터는 유지
-      }
-    );
+      (error: any) => {
+        if (error?.code === "permission-denied") {
+          setChats([]);
+          return;
+        }
+        console.error("❌ customer 채팅 실시간 업데이트 오류:", error?.code, error?.message);
+        }
+      );
+
+      unsubRef.current = () => {
+        unsubscribeOwner();
+        unsubscribeCustomer();
+      };
+    }, 400);
 
     return () => {
-      unsubscribeOwner();
-      unsubscribeCustomer();
+      clearTimeout(timer);
+      unsubRef.current?.();
     };
   }, [currentUser]);
 
@@ -443,11 +484,12 @@ export default function ChatsScreen() {
             <ActivityIndicator size="large" />
           </View>
         ) : (
-          <FlatList
-            data={filteredChats}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
-            renderItem={({ item }) => (
+          <View style={[styles.listWrapper, { marginBottom: BOTTOM_INSET }]}>
+            <FlatList
+              data={filteredChats}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.listContent}
+              renderItem={({ item }) => (
               <Pressable
                 style={styles.chatItem}
                 onPress={() => router.push(`/space/${item.spaceId}/chat`)}
@@ -472,15 +514,40 @@ export default function ChatsScreen() {
                       {formatTime(item.lastMessageTime)}
                     </Text>
                   </View>
-                  <Text style={styles.chatMessage} numberOfLines={1}>
-                    {item.lastMessage || "메시지가 없습니다"}
+                  <View style={styles.chatMessageRow}>
+                    {(() => {
+                      const stickerId = formatLastMessageAsSticker(item.lastMessage);
+                      if (stickerId) {
+                        const emoji = EMOJIS.find((e) => e.id === stickerId);
+                        return emoji ? (
+                          <Image
+                            source={emoji.source}
+                            style={styles.chatMessageEmoji}
+                            resizeMode="contain"
+                          />
+                        ) : (
+                          <Text style={styles.chatMessage}>스티커</Text>
+                        );
+                      }
+                      return (
+                        <Text style={styles.chatMessage} numberOfLines={1}>
+                          {item.lastMessage || "메시지가 없습니다"}
+                        </Text>
+                      );
+                    })()}
+                  </View>
+                  <Text style={styles.chatRole}>
+                    {item.lastTxStatus === "약속중" ||
+                    item.lastTxStatus === "보관중" ||
+                    item.lastTxStatus === "보관종료" ||
+                    item.lastTxStatus === "거절됨"
+                      ? item.lastTxStatus
+                      : item.lastTxStatus === "보관신청중"
+                        ? "보관요청중"
+                        : item.role === "owner"
+                          ? "판매중"
+                          : "구매중"}
                   </Text>
-                  {item.role === "owner" && (
-                    <Text style={styles.chatRole}>판매중</Text>
-                  )}
-                  {item.role === "customer" && (
-                    <Text style={styles.chatRole}>구매중</Text>
-                  )}
                 </View>
 
                 {item.unreadCount > 0 && (
@@ -502,6 +569,7 @@ export default function ChatsScreen() {
               </View>
             }
           />
+          </View>
         )}
 
         {/* 광고배너 (탭바를 덮도록) */}
@@ -617,11 +685,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  listWrapper: {
+    flex: 1,
+  },
   listContent: {
     padding: 16,
   },
   chatItem: {
     flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#fff",
     borderRadius: 12,
     padding: 12,
@@ -659,10 +731,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#9CA3AF",
   },
+  chatMessageRow: {
+    marginBottom: 4,
+  },
   chatMessage: {
     fontSize: 14,
     color: "#6B7280",
-    marginBottom: 4,
+  },
+  chatMessageEmoji: {
+    width: 20,
+    height: 20,
   },
   chatRole: {
     fontSize: 12,

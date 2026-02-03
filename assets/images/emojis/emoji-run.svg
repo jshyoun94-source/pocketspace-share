@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <circle cx="48" cy="42" r="28" fill="white" stroke="black" stroke-width="2"/>
+  <circle cx="42" cy="38" r="2" fill="black"/>
+  <circle cx="54" cy="38" r="2" fill="black"/>
+  <path d="M40 52 Q48 58 56 52" fill="none" stroke="black" stroke-width="1.5"/>
+  <path d="M22 38 L32 34 L34 42" fill="none" stroke="black" stroke-width="2"/>
+  <path d="M62 42 L74 46 L72 52" fill="none" stroke="black" stroke-width="2"/>
+  <path d="M40 68 L44 88 L50 88 L48 68" fill="none" stroke="black" stroke-width="2"/>
+  <path d="M52 70 L56 90 L64 88 L60 68" fill="none" stroke="black" stroke-width="2"/>
+  <line x1="25" y1="82" x2="38" y2="82" stroke="#999" stroke-width="1"/>
+  <line x1="22" y1="88" x2="40" y2="88" stroke="#999" stroke-width="1"/>
+  <rect x="58" y="8" width="32" height="20" rx="4" fill="white" stroke="black" stroke-width="1.5"/>
+  <text x="64" y="23" font-family="Arial" font-size="14" font-weight="bold" fill="black">GO!</text>
+</svg>

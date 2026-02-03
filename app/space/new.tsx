@@ -1,10 +1,12 @@
 // app/space/new.tsx
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useRouter } from "expo-router";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
+import { getStorage } from "firebase/storage";
+import { uploadBase64ToStorage } from "../../utils/uploadImageToStorage";
 import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -32,15 +34,17 @@ const storage = getStorage(app);
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const IMAGE_SIZE = (SCREEN_WIDTH - 16 * 2 - 8 * 2) / 3; // 화면 너비에서 패딩과 간격 제외 후 3등분
 
-const STORAGE_CATEGORIES = [
-  "모든물품",
-  "옷/잡화",
-  "20kg이내",
-  "수하물캐리어 크기이하",
-  "기내용캐리어 크기이하",
-  "지저분한물품가능",
+// 보관장소: 공간등록자가 어떤 공간인지 선택 (사용자가 참고)
+const STORAGE_PLACE_TYPES = [
+  "집",
+  "카페",
+  "식당",
+  "병원",
+  "개인창고",
+  "외부",
+  "기타",
 ] as const;
-type StorageCategory = (typeof STORAGE_CATEGORIES)[number];
+type StoragePlaceType = (typeof STORAGE_PLACE_TYPES)[number];
 
 type DayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 const DAY_LABELS: { key: DayKey; label: string }[] = [
@@ -59,8 +63,8 @@ const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) =>
   i.toString().padStart(2, "0")
 );
 
-// ✅ 가격 옵션(원/시간)
-const PRICE_OPTIONS = [500, 1000, 2000, 5000] as const;
+// ✅ 가격 옵션(원/시간) - 5,000원 이상은 기타협의로
+const PRICE_OPTIONS = [500, 1000, 2000] as const;
 
 export default function NewSpace() {
   const router = useRouter();
@@ -80,19 +84,21 @@ export default function NewSpace() {
   // 설명
   const [desc, setDesc] = useState("");
   
-  // 사진
-  const [images, setImages] = useState<string[]>([]);
+  // 사진 (uri: 미리보기, base64: 업로드용 - ImagePicker에서 직접 받음)
+  const [images, setImages] = useState<{ uri: string; base64?: string }[]>([]);
 
-  // 카테고리
-  const [categories, setCategories] = useState<StorageCategory[]>([]);
+  // 보관장소 (단일 선택)
+  const [placeType, setPlaceType] = useState<StoragePlaceType | null>(null);
+  const [placeTypeDropdownOpen, setPlaceTypeDropdownOpen] = useState(false);
 
   // 스케줄
   const [schedules, setSchedules] = useState<ScheduleBlock[]>([
     { id: uuidv4(), days: new Set<DayKey>(), time: { start: "09", end: "18" } },
   ]);
 
-  // 가격(원/시간)
+  // 가격(원/시간) 또는 기타협의
   const [hourlyPrice, setHourlyPrice] = useState<number | null>(1000);
+  const [priceNegotiable, setPriceNegotiable] = useState(false);
 
   // 시간 선택 모달 상태
   const [timePicker, setTimePicker] = useState<{
@@ -118,10 +124,10 @@ export default function NewSpace() {
     closeTimePicker();
   };
 
-  const toggleCategory = (cat: StorageCategory) =>
-    setCategories((prev) =>
-      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
-    );
+  const selectPlaceType = (v: StoragePlaceType) => {
+    setPlaceType(v);
+    setPlaceTypeDropdownOpen(false);
+  };
 
   const toggleDay = (blockId: string, day: DayKey) =>
     setSchedules((prev) =>
@@ -143,8 +149,9 @@ export default function NewSpace() {
 
   const canSubmit = useMemo(() => {
     const hasDays = schedules.some((b) => b.days.size > 0);
-    return (selectedAddress || addressQuery.trim().length > 0) && coords && hourlyPrice && hasDays;
-  }, [selectedAddress, addressQuery, coords, hourlyPrice, schedules]);
+    const hasPrice = priceNegotiable || (hourlyPrice != null && hourlyPrice > 0);
+    return (selectedAddress || addressQuery.trim().length > 0) && coords && placeType && hasPrice && hasDays;
+  }, [selectedAddress, addressQuery, coords, placeType, hourlyPrice, priceNegotiable, schedules]);
 
   // ✅ 주소 선택 시: 입력란 비우기 + 선택된 주소 표시 + 좌표 저장
   const handlePickedAddress = (p: {
@@ -205,43 +212,39 @@ export default function NewSpace() {
           console.log("Storage 버킷:", storage.app.options.storageBucket);
           console.log("현재 사용자 UID:", auth.currentUser?.uid);
           
-          for (const localUri of images) {
+          for (const img of images) {
             try {
-              console.log("이미지 업로드 시도:", localUri);
-              
-              // 로컬 URI를 Blob으로 변환
-              const response = await fetch(localUri);
-              if (!response.ok) {
-                console.error("이미지 fetch 실패:", response.status, response.statusText);
-                continue;
+              const uri = typeof img === "string" ? img : img.uri;
+              console.log("이미지 업로드 시도:", uri);
+
+              // ImagePicker base64 우선, 없으면 FileSystem (iOS ph:// 대응)
+              let base64: string | null =
+                typeof img === "object" && img.base64 ? img.base64 : null;
+              if (!base64) {
+                try {
+                  base64 = await FileSystem.readAsStringAsync(uri, {
+                    encoding: "base64",
+                  });
+                } catch {
+                  base64 = null;
+                }
               }
-              const blob = await response.blob();
-              console.log("Blob 생성 완료, 크기:", blob.size);
-              
-              // Firebase Storage에 업로드
+              if (!base64 || base64.length === 0) {
+                throw new Error("이미지 데이터를 읽을 수 없습니다.");
+              }
+
               const fileName = `${Date.now()}_${uuidv4()}.jpg`;
               const imagePath = `spaces/${auth.currentUser!.uid}/${fileName}`;
-              console.log("업로드 경로:", imagePath);
-              
-              const imageRef = ref(storage, imagePath);
-              console.log("Storage ref 생성 완료");
-              
-              await uploadBytes(imageRef, blob);
+              const downloadURL = await uploadBase64ToStorage(
+                base64,
+                imagePath,
+                "image/jpeg"
+              );
               console.log("업로드 완료:", fileName);
-              
-              // 다운로드 URL 가져오기
-              const downloadURL = await getDownloadURL(imageRef);
-              console.log("다운로드 URL:", downloadURL);
               uploadedImageUrls.push(downloadURL);
             } catch (error: any) {
-              console.error("이미지 업로드 실패 - 상세:", {
-                message: error?.message,
-                code: error?.code,
-                serverResponse: error?.serverResponse,
-                stack: error?.stack,
-              });
+              console.error("이미지 업로드 실패:", error?.message, error?.code);
               Alert.alert("이미지 업로드 실패", `오류: ${error?.message || "알 수 없는 오류"}`);
-              // 업로드 실패한 이미지는 건너뛰기 (공간 등록은 계속 진행)
             }
           }
           console.log("업로드 완료된 이미지 개수:", uploadedImageUrls.length);
@@ -262,13 +265,15 @@ export default function NewSpace() {
           lng: coords.lng,
         },
         pricePerHour: hourlyPrice,
-        tags: categories,
+        placeType: placeType ?? null,
+        tags: placeType ? [placeType] : [],
         schedules: schedules.map((b) => ({
           days: Array.from(b.days),
           time: b.time,
         })),
         images: uploadedImageUrls, // Firebase Storage 다운로드 URL 배열
         ownerId: auth.currentUser.uid,
+        availableForRent: true,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -283,12 +288,13 @@ export default function NewSpace() {
         description: desc.trim(),
         addressFormatted: addressFormatted.trim(),
         location: coords,
-        categories,
+        placeType: placeType ?? null,
         schedules: schedules.map((b) => ({
           days: Array.from(b.days),
           time: b.time,
         })),
-        hourlyPrice,
+        hourlyPrice: priceNegotiable ? null : hourlyPrice,
+        priceNegotiable,
         createdAt: Date.now(),
       };
 
@@ -328,17 +334,21 @@ export default function NewSpace() {
 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],
         allowsMultipleSelection: true,
-        allowsEditing: false, // 여러 장 선택 시 편집 비활성화
+        allowsEditing: false,
         quality: 0.8,
-        aspect: [1, 1], // 정사각형
-        selectionLimit: 9 - images.length, // 남은 개수만큼만 선택 가능
+        aspect: [1, 1],
+        selectionLimit: 9 - images.length,
+        base64: true, // iOS ph:// URI 대응 - 네이티브에서 base64 직접 반환
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const newImages = result.assets.map((asset) => asset.uri);
-        setImages((prev) => [...prev, ...newImages].slice(0, 9)); // 최대 9개
+        const newImages = result.assets.map((asset) => ({
+          uri: asset.uri,
+          base64: asset.base64 ?? undefined,
+        }));
+        setImages((prev) => [...prev, ...newImages].slice(0, 9));
       }
     } catch (error) {
       console.error("이미지 선택 오류:", error);
@@ -375,8 +385,8 @@ export default function NewSpace() {
         contentContainerStyle={{ paddingBottom: 24 }}
         renderItem={() => (
           <View style={styles.container}>
-            {/* ✅ 부제목 통일: 주소 검색 */}
-            <Text style={styles.sectionTitle}>주소 검색</Text>
+            {/* 부제목: 주소검색 */}
+            <Text style={styles.sectionTitle}>주소검색</Text>
             
             {selectedAddress ? (
               // 선택된 주소 표시
@@ -392,7 +402,7 @@ export default function NewSpace() {
                 </Pressable>
               </View>
             ) : (
-              // 주소 검색 입력란
+              // 주소검색 입력란
               <View style={styles.gplacesWrap}>
                 <AddressPicker
                   key={`ap-${addressPickerKeyRef.current}`}
@@ -409,9 +419,12 @@ export default function NewSpace() {
             {/* 사진 미리보기 */}
             {images.length > 0 && (
               <View style={styles.imagePreviewContainer}>
-                {images.map((uri, index) => (
+                {images.map((img, index) => (
                   <View key={index} style={styles.imagePreviewWrapper}>
-                    <Image source={{ uri }} style={styles.imagePreview} />
+                    <Image
+                      source={{ uri: typeof img === "string" ? img : img.uri }}
+                      style={styles.imagePreview}
+                    />
                     <Pressable
                       style={styles.imageRemoveButton}
                       onPress={() => removeImage(index)}
@@ -426,7 +439,7 @@ export default function NewSpace() {
             {/* 사진 첨부 버튼 */}
             <Pressable style={styles.imagePickerButton} onPress={pickImage}>
               <Ionicons name="camera-outline" size={20} color="#6B7280" />
-              <Text style={styles.imagePickerText}>사진 첨부</Text>
+              <Text style={styles.imagePickerText}>사진첨부 (선택)</Text>
             </Pressable>
             
             <TextInput
@@ -437,23 +450,31 @@ export default function NewSpace() {
               onChangeText={setDesc}
             />
 
-            {/* 보관가능한 물품 */}
-            <Text style={styles.sectionTitle}>보관가능한 물품</Text>
-            <View style={styles.chipRowWrap}>
-              {STORAGE_CATEGORIES.map((cat) => {
-                const active = categories.includes(cat);
-                return (
-                  <TouchableOpacity
-                    key={cat}
-                    onPress={() => toggleCategory(cat)}
-                    style={[styles.chip, active && styles.chipActive]}
-                  >
-                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                      {cat}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+            {/* 보관장소 */}
+            <Text style={styles.sectionTitle}>보관장소</Text>
+            <View style={styles.dropdownWrap}>
+              <Pressable
+                style={styles.dropdownTrigger}
+                onPress={() => setPlaceTypeDropdownOpen((o) => !o)}
+              >
+                <Text style={placeType ? styles.dropdownText : styles.dropdownPlaceholder}>
+                  {placeType ?? "선택하세요"}
+                </Text>
+                <Ionicons name={placeTypeDropdownOpen ? "chevron-up" : "chevron-down"} size={20} color="#6B7280" />
+              </Pressable>
+              {placeTypeDropdownOpen && (
+                <View style={styles.dropdownMenu}>
+                  {STORAGE_PLACE_TYPES.map((opt) => (
+                    <Pressable
+                      key={opt}
+                      style={styles.dropdownItem}
+                      onPress={() => selectPlaceType(opt)}
+                    >
+                      <Text style={styles.dropdownItemText}>{opt}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
 
             {/* 보관가능시간 */}
@@ -529,11 +550,14 @@ export default function NewSpace() {
             <Text style={styles.sectionTitle}>보관가격(원/시간)</Text>
             <View style={styles.priceRow}>
               {PRICE_OPTIONS.map((p) => {
-                const active = hourlyPrice === p;
+                const active = !priceNegotiable && hourlyPrice === p;
                 return (
                   <TouchableOpacity
                     key={p}
-                    onPress={() => setHourlyPrice(p)}
+                    onPress={() => {
+                      setPriceNegotiable(false);
+                      setHourlyPrice(p);
+                    }}
                     style={[styles.priceChip, active && styles.priceChipActive]}
                   >
                     <Text style={[styles.priceChipText, active && styles.priceChipTextActive]}>
@@ -542,6 +566,17 @@ export default function NewSpace() {
                   </TouchableOpacity>
                 );
               })}
+              <TouchableOpacity
+                onPress={() => {
+                  setPriceNegotiable(true);
+                  setHourlyPrice(null);
+                }}
+                style={[styles.priceChip, priceNegotiable && styles.priceChipActive]}
+              >
+                <Text style={[styles.priceChipText, priceNegotiable && styles.priceChipTextActive]}>
+                  기타협의
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <Pressable
@@ -657,6 +692,39 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
+  dropdownWrap: {
+    position: "relative",
+    marginTop: 8,
+  },
+  dropdownTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 44,
+    backgroundColor: "#fff",
+  },
+  dropdownText: { fontSize: 16, color: "#111827" },
+  dropdownPlaceholder: { fontSize: 16, color: "#9CA3AF" },
+  dropdownMenu: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    overflow: "hidden",
+  },
+  dropdownItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  dropdownItemText: { fontSize: 15, color: "#374151" },
+
   chipRowWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -738,7 +806,7 @@ const styles = StyleSheet.create({
   addBtnText: { fontSize: 15, fontWeight: "600", color: "#111827" },
 
   // 가격 선택
-  priceRow: { flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 8 },
+  priceRow: { flexDirection: "row", gap: 8, flexWrap: "nowrap", marginTop: 8 },
   priceChip: {
     paddingHorizontal: 12,
     height: 36,

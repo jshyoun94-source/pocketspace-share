@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, onSnapshot } from "firebase/firestore";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
@@ -16,16 +16,17 @@ import {
     Text,
     View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import AddressPicker, { AddressPickerHandle } from "../../components/AddressPicker";
-import SideMenu from "../../components/SideMenu";
-import VoiceSearchButton from "../../components/VoiceSearchButton";
 import { auth, db } from "../../firebase";
 
 type Space = {
   id: string;
   title: string;
   pricePerHour: number;
+  priceNegotiable?: boolean;
+  placeType?: string | null;
   coords: { lat: number; lng: number };
   address: string;
   tags: string[];
@@ -40,6 +41,7 @@ type Space = {
 export default function HomeMap() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const addrRef = useRef<AddressPickerHandle>(null); // 음성결과 주입용 ref
 
@@ -61,24 +63,14 @@ export default function HomeMap() {
 
   const [filterOpen, setFilterOpen] = useState(false); // 필터 모달 상태
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [loginModalVisible, setLoginModalVisible] = useState(false);
   
   // 필터 상태
   const [selectedDistance, setSelectedDistance] = useState<number | null>(null); // 미터 단위 (50, 100, 500, 1000)
   const [selectedMaxPrice, setSelectedMaxPrice] = useState<number | null>(null); // 1000, 2000
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]); // 보관가능물품
+  const [selectedPlaceTypes, setSelectedPlaceTypes] = useState<string[]>([]); // 보관장소
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedTimeFilter, setSelectedTimeFilter] = useState<"지금" | "오늘" | "내일" | null>(null);
-
-  const banner = useMemo(
-    () => ({
-      image:
-        "https://dummyimage.com/1400x180/EEF3FF/2477FF&text=%EA%B3%B5%ED%95%AD+%EC%A3%BC%EC%B0%A8%EB%8C%80%ED%96%89+%EB%B0%B0%EB%84%88",
-      link: "https://example.com",
-    }),
-    []
-  );
 
   // 현재 위치로 초기 이동 및 실시간 위치 추적
   useEffect(() => {
@@ -184,9 +176,56 @@ export default function HomeMap() {
     }
   }, [params.focusLat, params.focusLng]);
 
-  // Firestore + 로컬 병합 로드
-  const loadSpaces = useCallback(async () => {
+  // Firestore 실시간 구독 + 로컬 병합 (다른 시뮬/기기에서 등록해도 즉시 반영)
+  useEffect(() => {
     setLoading(true);
+    const unsub = onSnapshot(collection(db, "spaces"), (snap) => {
+      const fsRows: Space[] = [];
+      snap.forEach((d) => {
+        const x: any = d.data();
+        if (!x?.coords?.lat || !x?.coords?.lng) return;
+        fsRows.push({
+          id: d.id,
+          title: x.title ?? "공간",
+          pricePerHour: Number(x.pricePerHour ?? 0),
+          priceNegotiable: x.priceNegotiable === true,
+          placeType: x.placeType ?? x.tags?.[0] ?? null,
+          coords: { lat: x.coords.lat, lng: x.coords.lng },
+          address: x.address ?? "",
+          tags: x.tags ?? [],
+          nightClosed: x.nightClosed ?? false,
+          verified: x.verified ?? false,
+          schedules: x.schedules ?? [],
+        });
+      });
+
+      AsyncStorage.getItem("spaces").then((raw) => {
+        const localArr: any[] = raw ? JSON.parse(raw) : [];
+        const localRows: Space[] = localArr
+          .filter((s) => s?.location?.lat && s?.location?.lng)
+          .map((s) => ({
+            id: s.id,
+            title: s.title ?? s.addressFormatted ?? "공간",
+            pricePerHour: Number(s.hourlyPrice ?? 0),
+            priceNegotiable: s.priceNegotiable ?? false,
+            placeType: s.placeType ?? s.categories?.[0] ?? null,
+            coords: { lat: s.location.lat, lng: s.location.lng },
+            address: s.addressFormatted ?? "",
+            tags: s.categories ?? [],
+            nightClosed: false,
+            verified: false,
+            schedules: s.schedules ?? [],
+          }));
+        const fsIds = new Set(fsRows.map((r) => r.id));
+        const merged = [...fsRows, ...localRows.filter((r) => !fsIds.has(r.id))];
+        setSpaces(merged);
+      });
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  const loadSpaces = useCallback(async () => {
     try {
       const snap = await getDocs(collection(db, "spaces"));
       const fsRows: Space[] = [];
@@ -197,6 +236,8 @@ export default function HomeMap() {
           id: d.id,
           title: x.title ?? "공간",
           pricePerHour: Number(x.pricePerHour ?? 0),
+          priceNegotiable: x.priceNegotiable === true,
+          placeType: x.placeType ?? x.tags?.[0] ?? null,
           coords: { lat: x.coords.lat, lng: x.coords.lng },
           address: x.address ?? "",
           tags: x.tags ?? [],
@@ -205,7 +246,6 @@ export default function HomeMap() {
           schedules: x.schedules ?? [],
         });
       });
-
       const raw = await AsyncStorage.getItem("spaces");
       const localArr: any[] = raw ? JSON.parse(raw) : [];
       const localRows: Space[] = localArr
@@ -214,6 +254,8 @@ export default function HomeMap() {
           id: s.id,
           title: s.title ?? s.addressFormatted ?? "공간",
           pricePerHour: Number(s.hourlyPrice ?? 0),
+          priceNegotiable: s.priceNegotiable ?? false,
+          placeType: s.placeType ?? s.categories?.[0] ?? null,
           coords: { lat: s.location.lat, lng: s.location.lng },
           address: s.addressFormatted ?? "",
           tags: s.categories ?? [],
@@ -221,26 +263,13 @@ export default function HomeMap() {
           verified: false,
           schedules: s.schedules ?? [],
         }));
-
       const fsIds = new Set(fsRows.map((r) => r.id));
       const merged = [...fsRows, ...localRows.filter((r) => !fsIds.has(r.id))];
       setSpaces(merged);
     } catch (e) {
       console.warn(e);
-    } finally {
-      setLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    loadSpaces();
-  }, [loadSpaces]);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadSpaces();
-    }, [loadSpaces])
-  );
 
   // 거리 계산 함수 (Haversine formula)
   const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
@@ -322,19 +351,16 @@ export default function HomeMap() {
           if (distance > selectedDistance) return false;
         }
         
-        // 가격 필터
-        if (selectedMaxPrice !== null) {
+        // 가격 필터 (기타협의는 통과)
+        if (selectedMaxPrice !== null && !s.priceNegotiable) {
           if (s.pricePerHour > selectedMaxPrice) return false;
         }
         
-        // 보관가능물품 필터
-        if (selectedCategories.length > 0) {
-          // "모든물품"이 선택되면 모든 공간 통과
-          if (!selectedCategories.includes("모든물품")) {
-            // 선택된 카테고리 중 하나라도 공간의 태그에 포함되어야 함
-            const hasCategory = selectedCategories.some((cat) => s.tags.includes(cat));
-            if (!hasCategory) return false;
-          }
+        // 보관장소 필터
+        if (selectedPlaceTypes.length > 0) {
+          const spacePlace = s.placeType ?? s.tags?.[0];
+          const hasPlace = selectedPlaceTypes.some((p) => p === spacePlace);
+          if (!hasPlace) return false;
         }
         
         // 시간 필터 (지금/오늘/내일)
@@ -383,7 +409,7 @@ export default function HomeMap() {
         
         return true;
       }),
-    [spaces, selectedTags, selectedDistance, selectedMaxPrice, selectedCategories, currentLocation, selectedTimeFilter]
+    [spaces, selectedTags, selectedDistance, selectedMaxPrice, selectedPlaceTypes, currentLocation, selectedTimeFilter]
   );
 
   const goDetail = (id: string) => router.push(`/space/${id}`);
@@ -410,49 +436,6 @@ export default function HomeMap() {
       moveTo(p.lat, p.lng);
     } else {
       Alert.alert("위치 없음", "선택한 결과에 좌표가 없어요.");
-    }
-  };
-
-  // 🔧 음성 인식 결과 처리(수정 포인트)
-  const handleVoiceResult = async (finalText: string) => {
-    if (!finalText?.trim()) return;
-    const q = finalText.trim();
-
-    // ✅ 추가된 부분: 입력창에도 음성결과 반영
-    addrRef.current?.forceQueryUpdate?.(q);
-
-    // 1) AddressPicker에게 위임 → 자동완성 첫 항목 선택 및 입력창 채우기
-    try {
-      await addrRef.current?.setQueryAndSearch?.(q);
-      return; // ✅ 여기서 종료: 입력창이 채워지고 onPicked까지 호출됨
-    } catch {
-      // 아래 폴백으로 진행
-    }
-
-    // 2) 폴백: Geocoding API로 직접 이동(입력창은 유지)
-    try {
-      const key = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
-      if (!key) {
-        Alert.alert("API 키 누락", "Google Places API 키(.env)가 필요합니다.");
-        return;
-      }
-      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-        q
-      )}&key=${key}&language=ko&region=kr`;
-      const res = await fetch(url);
-      const json = await res.json();
-
-      if (json.status === "OK" && json.results?.length) {
-        const loc = json.results[0].geometry.location;
-        const formatted = json.results[0].formatted_address as string;
-        setPicked({ lat: loc.lat, lng: loc.lng, name: q, formatted });
-        moveTo(loc.lat, loc.lng);
-      } else {
-        Alert.alert("검색 결과 없음", `“${q}”에 해당하는 위치를 찾지 못했어요.`);
-      }
-    } catch (e) {
-      console.warn("[STT] geocode fallback error:", e);
-      Alert.alert("음성 검색 오류", "위치로 이동 중 문제가 발생했어요.");
     }
   };
 
@@ -489,7 +472,7 @@ export default function HomeMap() {
               }}
             >
               <Text style={{ color: "#fff", fontWeight: "bold" }}>
-                {s.pricePerHour.toLocaleString()}원
+                {s.priceNegotiable || !s.pricePerHour ? "금액협의" : `${s.pricePerHour.toLocaleString()}원`}
               </Text>
             </View>
           </Marker>
@@ -531,14 +514,10 @@ export default function HomeMap() {
             overflow: "visible",
           }}
         >
-          <Pressable onPress={() => setMenuOpen(true)} style={{ padding: 6 }}>
-            <Ionicons name="menu" size={20} color="#333" />
-          </Pressable>
-
           <View style={{ flex: 1, marginHorizontal: 8, zIndex: 1 }}>
             <AddressPicker
               ref={addrRef}
-              placeholder="목적지 또는 주소 검색"
+              placeholder="보관장소 검색"
               coordsBias={{
                 lat: region.latitude,
                 lng: region.longitude,
@@ -548,17 +527,12 @@ export default function HomeMap() {
             />
           </View>
 
-          {/* 🎤 음성검색 버튼 */}
-          <View style={{ padding: 4, zIndex: 1 }}>
-            <VoiceSearchButton onResult={handleVoiceResult} />
-          </View>
-
           <Pressable
             onPress={() => {
               setFilterOpen(true);
             }}
             style={{
-              marginLeft: 8,
+              marginLeft: 4,
               backgroundColor: "#2477ff",
               paddingHorizontal: 10,
               height: 36,
@@ -639,37 +613,23 @@ export default function HomeMap() {
             }}
             style={[btnSquare, { borderRadius: 16 }]}
           >
-            <Ionicons name="locate-outline" size={20} color="#111827" />
+            <Ionicons name="locate-outline" size={18} color="#111827" />
           </Pressable>
         </View>
       </View>
 
-      {/* 하단 흰색 배경 (탭바 위치부터 화면 하단까지) */}
+      {/* 홈만 맵이 _layout 흰색 위에 그려져서 탭바 배경이 안 보임 → 맵 위에 동일한 흰색 레이어를 올려 탭바 배경 표시 */}
       <View
         style={{
           position: "absolute",
           left: 0,
           right: 0,
           bottom: 0,
-          height: Platform.OS === "ios" ? 60 : 36, // 탭바 + 광고배너 영역 (조정)
-          backgroundColor: "#fff",
-          zIndex: 0, // 가장 아래
-        }}
-      />
-      
-      {/* 탭바 배경 (투명한 탭바 위에 흰색 배경) */}
-      <View
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: Platform.OS === "ios" ? 52 : 28,
-          height: Platform.OS === "ios" ? 88 : 64,
-          backgroundColor: "#fff",
+          height: Platform.OS === "ios" ? 140 : 92,
+          backgroundColor: "#FFFFFF",
           borderTopWidth: 1,
           borderTopColor: "#E5E7EB",
-          zIndex: 1, // 광고배너보다 아래
-          elevation: 1, // Android
+          zIndex: 1,
         }}
       />
 
@@ -850,8 +810,6 @@ export default function HomeMap() {
         </View>
       )}
 
-      <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} bannerUri={banner.image} />
-
       {/* 필터 패널 (오른쪽에서 왼쪽으로 슬라이드) */}
       <Modal transparent visible={filterOpen} animationType="fade" onRequestClose={() => setFilterOpen(false)}>
         <Pressable 
@@ -859,7 +817,7 @@ export default function HomeMap() {
           onPress={() => setFilterOpen(false)} 
         />
         <View style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: "85%", backgroundColor: "#fff" }}>
-          <ScrollView style={{ flex: 1, padding: 20 }} showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ flex: 1, padding: 20, paddingTop: insets.top + 20 }} showsVerticalScrollIndicator={false}>
             {/* 헤더 */}
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
               <Text style={{ fontSize: 24, fontWeight: "700", color: "#111827" }}>필터</Text>
@@ -872,7 +830,7 @@ export default function HomeMap() {
             <View style={{ marginBottom: 32 }}>
               <Text style={{ fontSize: 18, fontWeight: "600", color: "#111827", marginBottom: 16 }}>거리</Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                {[50, 100, 500, 1000].map((distance) => {
+                {[50, 100, 500].map((distance) => {
                   const isSelected = selectedDistance === distance;
                   const label = distance < 1000 ? `${distance}m` : `${distance / 1000}km`;
                   return (
@@ -925,20 +883,20 @@ export default function HomeMap() {
               </View>
             </View>
 
-            {/* 보관가능물품 필터 */}
+            {/* 보관장소 필터 */}
             <View style={{ marginBottom: 32 }}>
-              <Text style={{ fontSize: 18, fontWeight: "600", color: "#111827", marginBottom: 16 }}>보관가능물품</Text>
+              <Text style={{ fontSize: 18, fontWeight: "600", color: "#111827", marginBottom: 16 }}>보관장소</Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                {["모든물품", "옷/잡화", "20kg이내", "수하물캐리어 크기이하", "기내용캐리어 크기이하", "지저분한물품가능"].map((category) => {
-                  const isSelected = selectedCategories.includes(category);
+                {["집", "카페", "식당", "병원", "개인창고", "외부", "기타"].map((place) => {
+                  const isSelected = selectedPlaceTypes.includes(place);
                   return (
                     <Pressable
-                      key={category}
+                      key={place}
                       onPress={() => {
                         if (isSelected) {
-                          setSelectedCategories(selectedCategories.filter((c) => c !== category));
+                          setSelectedPlaceTypes(selectedPlaceTypes.filter((p) => p !== place));
                         } else {
-                          setSelectedCategories([...selectedCategories, category]);
+                          setSelectedPlaceTypes([...selectedPlaceTypes, place]);
                         }
                       }}
                       style={{
@@ -951,7 +909,7 @@ export default function HomeMap() {
                       }}
                     >
                       <Text style={{ color: isSelected ? "#fff" : "#111827", fontWeight: "600" }}>
-                        {category}
+                        {place}
                       </Text>
                     </Pressable>
                   );
@@ -966,8 +924,8 @@ export default function HomeMap() {
 }
 
 const btnSquare = {
-  width: 44,
-  height: 44,
+  width: 36,
+  height: 36,
   backgroundColor: "white",
   borderRadius: 12,
   borderWidth: 1,
@@ -975,4 +933,4 @@ const btnSquare = {
   alignItems: "center" as const,
   justifyContent: "center" as const,
 };
-const btnText = { fontSize: 24, lineHeight: 24, color: "#111827" };
+const btnText = { fontSize: 20, lineHeight: 20, color: "#111827" };

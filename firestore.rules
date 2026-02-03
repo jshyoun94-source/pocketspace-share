@@ -19,6 +19,10 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/chats/$(chatId));
     }
 
+    function parentChatExists(chatId) {
+      return exists(/databases/$(database)/documents/chats/$(chatId));
+    }
+
     // -------------------------
     // users
     // -------------------------
@@ -46,7 +50,20 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid;
 
-      allow update, delete: if signedIn()
+      // 소유자: 전체 수정/삭제 가능
+      // 비소유자: viewCount, favoriteCount, updatedAt만 수정 가능 (조회수/즐겨찾기 증감용)
+      allow update: if signedIn() && (
+        resource.data.ownerId == request.auth.uid
+        || (
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewCount', 'updatedAt'])
+            || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoriteCount', 'updatedAt'])
+            || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewCount', 'favoriteCount', 'updatedAt'])
+          )
+          && request.resource.data.ownerId == resource.data.ownerId
+        )
+      );
+      allow delete: if signedIn()
         && resource.data.ownerId == request.auth.uid;
     }
 
@@ -78,13 +95,13 @@ service cloud.firestore {
       // messages
       // -------------------------
       match /messages/{messageId} {
-        allow get, list: if parentChat(chatId).data != null
+        allow get, list: if parentChatExists(chatId)
           && isChatMember(parentChat(chatId).data);
 
         // create:
         // - 참여자
         // - senderId가 본인이거나 "system" 허용
-        allow create: if parentChat(chatId).data != null
+        allow create: if parentChatExists(chatId)
           && isChatMember(parentChat(chatId).data)
           && request.resource.data.keys().hasAll(['text','senderId','createdAt'])
           && (
@@ -124,6 +141,28 @@ service cloud.firestore {
     }
 
     // -------------------------
+    // transactions (보관 거래 - 마음공간)
+    // -------------------------
+    function isTransactionParty(data) {
+      return signedIn()
+        && (request.auth.uid == data.ownerId || request.auth.uid == data.customerId);
+    }
+    function isTransactionReadableByChatMember() {
+      return resource != null
+        && resource.data.chatId != null
+        && exists(/databases/$(database)/documents/chats/$(resource.data.chatId))
+        && isChatMember(get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data);
+    }
+    match /transactions/{transactionId} {
+      allow read: if signedIn() && resource != null
+        && (isTransactionParty(resource.data) || isTransactionReadableByChatMember());
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(['spaceId','ownerId','customerId','chatId','status'])
+        && isTransactionParty(request.resource.data);
+      allow update, delete: if resource != null && isTransactionParty(resource.data);
+    }
+
+    // -------------------------
     // neighborhoodRequests (동네부탁)
     // -------------------------
     match /neighborhoodRequests/{requestId} {
@@ -135,10 +174,13 @@ service cloud.firestore {
         && request.resource.data.authorId == request.auth.uid
         && request.resource.data.keys().hasAll(['authorId', 'authorName', 'title', 'content', 'price', 'location', 'createdAt', 'status']);
       
-      // 작성자 또는 수락한 사용자만 수정 가능
+      // 작성자, 이미 수락한 사용자, 또는 수락 요청자(acceptedBy를 본인으로 설정)만 수정 가능
       allow update: if signedIn()
         && (resource.data.authorId == request.auth.uid
-            || resource.data.acceptedBy == request.auth.uid);
+            || resource.data.acceptedBy == request.auth.uid
+            || (request.auth.uid != resource.data.authorId
+                && request.resource.data.acceptedBy == request.auth.uid
+                && request.resource.data.status == "in_progress"));
       
       // 작성자만 삭제 가능
       allow delete: if signedIn()

@@ -1,9 +1,11 @@
 // app/space/[id]/edit.tsx
 import { Ionicons } from "@expo/vector-icons";
+import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
+import { getStorage } from "firebase/storage";
+import { uploadBase64ToStorage } from "../../../utils/uploadImageToStorage";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -23,22 +25,15 @@ import "react-native-get-random-values";
 import { v4 as uuidv4 } from "uuid";
 
 import AddressPicker from "../../../components/AddressPicker";
-import { app, auth, db } from "../../../firebase";
-
-const storage = getStorage(app);
+import { auth, db } from "../../../firebase";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const IMAGE_SIZE = (SCREEN_WIDTH - 16 * 2 - 8 * 2) / 3;
 
-const STORAGE_CATEGORIES = [
-  "모든물품",
-  "옷/잡화",
-  "20kg이내",
-  "수하물캐리어 크기이하",
-  "기내용캐리어 크기이하",
-  "지저분한물품가능",
+const STORAGE_PLACE_TYPES = [
+  "집", "카페", "식당", "병원", "개인창고", "외부", "기타",
 ] as const;
-type StorageCategory = (typeof STORAGE_CATEGORIES)[number];
+type StoragePlaceType = (typeof STORAGE_PLACE_TYPES)[number];
 
 type DayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 const DAY_LABELS: { key: DayKey; label: string }[] = [
@@ -57,7 +52,7 @@ const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) =>
   i.toString().padStart(2, "0")
 );
 
-const PRICE_OPTIONS = [500, 1000, 2000, 5000] as const;
+const PRICE_OPTIONS = [500, 1000, 2000] as const;
 
 export default function EditSpace() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -78,19 +73,24 @@ export default function EditSpace() {
   // 설명
   const [desc, setDesc] = useState("");
 
-  // 사진
-  const [images, setImages] = useState<string[]>([]);
+  // 사진: URL 문자열 또는 { uri, base64 } (base64로 업로드 시 ArrayBuffer 오류 방지)
+  const [images, setImages] = useState<(string | { uri: string; base64?: string })[]>([]);
 
-  // 카테고리
-  const [categories, setCategories] = useState<StorageCategory[]>([]);
+  // 보관장소 (단일 선택)
+  const [placeType, setPlaceType] = useState<StoragePlaceType | null>(null);
+  const [placeTypeDropdownOpen, setPlaceTypeDropdownOpen] = useState(false);
 
   // 스케줄
   const [schedules, setSchedules] = useState<ScheduleBlock[]>([
     { id: uuidv4(), days: new Set<DayKey>(), time: { start: "09", end: "18" } },
   ]);
 
-  // 가격(원/시간)
+  // 가격(원/시간) 또는 기타협의
   const [hourlyPrice, setHourlyPrice] = useState<number | null>(1000);
+  const [priceNegotiable, setPriceNegotiable] = useState(false);
+
+  // 대여가능 (실시간 수정, 모든 사용자에게 노출)
+  const [availableForRent, setAvailableForRent] = useState(true);
 
   // 시간 선택 모달 상태
   const [timePicker, setTimePicker] = useState<{
@@ -129,8 +129,8 @@ export default function EditSpace() {
           // 사진
           setImages(data.images || []);
           
-          // 카테고리
-          setCategories(data.tags || []);
+          // 보관장소
+          setPlaceType(data.placeType ?? data.tags?.[0] ?? null);
           
           // 스케줄
           if (data.schedules && data.schedules.length > 0) {
@@ -143,7 +143,11 @@ export default function EditSpace() {
           }
           
           // 가격
-          setHourlyPrice(data.pricePerHour || 1000);
+          setPriceNegotiable(data.priceNegotiable === true);
+          setHourlyPrice(data.pricePerHour ?? 1000);
+
+          // 대여가능 (기본 true)
+          setAvailableForRent(data.availableForRent !== false);
         }
       } catch (e) {
         console.error("데이터 불러오기 실패:", e);
@@ -198,10 +202,9 @@ export default function EditSpace() {
     setSchedules((prev) => prev.filter((b) => b.id !== blockId));
   };
 
-  const toggleCategory = (cat: StorageCategory) => {
-    setCategories((prev) =>
-      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
-    );
+  const selectPlaceType = (v: StoragePlaceType) => {
+    setPlaceType(v);
+    setPlaceTypeDropdownOpen(false);
   };
 
   const handlePickedAddress = (p: {
@@ -234,8 +237,9 @@ export default function EditSpace() {
   const canSubmit = useMemo(() => {
     const hasAddress = selectedAddress || (addressQuery.trim() && coords);
     const hasDays = schedules.some((b) => b.days.size > 0);
-    return hasAddress && hourlyPrice && hasDays;
-  }, [selectedAddress, addressQuery, coords, hourlyPrice, schedules]);
+    const hasPrice = priceNegotiable || (hourlyPrice != null && hourlyPrice > 0);
+    return hasAddress && placeType && hasPrice && hasDays;
+  }, [selectedAddress, addressQuery, coords, placeType, hourlyPrice, priceNegotiable, schedules]);
 
   // 사진 선택
   const pickImage = async () => {
@@ -247,16 +251,19 @@ export default function EditSpace() {
 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],
         allowsMultipleSelection: true,
         allowsEditing: false,
         quality: 0.8,
-        aspect: [1, 1],
+        base64: true, // ph:// URI 시 FileSystem.readAsStringAsync가 ArrayBuffer 오류 유발 → base64 직접 사용
         selectionLimit: 9 - images.length,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const newImages = result.assets.map((asset) => asset.uri);
+        const newImages = result.assets.map((asset) => ({
+          uri: asset.uri,
+          base64: asset.base64 ?? undefined,
+        }));
         setImages((prev) => [...prev, ...newImages].slice(0, 9));
       }
     } catch (error) {
@@ -290,26 +297,36 @@ export default function EditSpace() {
       const addressTitle = selectedAddress?.name || addressQuery.trim();
 
       // 새로 추가된 이미지를 Firebase Storage에 업로드
-      const uploadedImageUrls: string[] = [...images.filter(img => img.startsWith('https://'))]; // 기존 URL은 그대로 유지
-      const newImages = images.filter(img => !img.startsWith('https://')); // 새로 추가된 로컬 이미지만 업로드
-      
+      const uploadedImageUrls: string[] = [
+        ...images.filter((img): img is string => typeof img === "string" && img.startsWith("https://")),
+      ];
+      const newImages = images.filter(
+        (img): img is { uri: string; base64?: string } =>
+          typeof img === "object" && !("startsWith" in img)
+      );
+
       if (newImages.length > 0) {
         try {
-          for (const localUri of newImages) {
+          for (const img of newImages) {
             try {
-              const response = await fetch(localUri);
-              if (!response.ok) {
-                console.error("이미지 fetch 실패:", response.status);
-                continue;
+              let base64: string | null = img.base64 ?? null;
+              if (!base64) {
+                try {
+                  base64 = await FileSystem.readAsStringAsync(img.uri, {
+                    encoding: "base64",
+                  });
+                } catch {
+                  base64 = null;
+                }
               }
-              const blob = await response.blob();
-              
+              if (!base64) continue;
               const fileName = `${Date.now()}_${uuidv4()}.jpg`;
               const imagePath = `spaces/${auth.currentUser!.uid}/${fileName}`;
-              const imageRef = ref(storage, imagePath);
-              
-              await uploadBytes(imageRef, blob);
-              const downloadURL = await getDownloadURL(imageRef);
+              const downloadURL = await uploadBase64ToStorage(
+                base64,
+                imagePath,
+                "image/jpeg"
+              );
               uploadedImageUrls.push(downloadURL);
             } catch (error: any) {
               console.error("이미지 업로드 실패:", error);
@@ -330,13 +347,16 @@ export default function EditSpace() {
           lat: coords.lat,
           lng: coords.lng,
         },
-        pricePerHour: hourlyPrice,
-        tags: categories,
+        pricePerHour: priceNegotiable ? null : hourlyPrice,
+        priceNegotiable,
+        placeType: placeType ?? null,
+        tags: placeType ? [placeType] : [],
         schedules: schedules.map((b) => ({
           days: Array.from(b.days),
           time: b.time,
         })),
         images: uploadedImageUrls,
+        availableForRent,
         updatedAt: serverTimestamp(),
       });
 
@@ -404,6 +424,23 @@ export default function EditSpace() {
         contentContainerStyle={{ paddingBottom: 24 }}
         renderItem={() => (
           <View style={styles.container}>
+            {/* 대여가능 설정 */}
+            <View style={styles.toggleRow}>
+              <Text style={styles.sectionTitle}>대여 가능</Text>
+              <TouchableOpacity
+                style={[styles.toggleBtn, availableForRent && styles.toggleBtnActive]}
+                onPress={() => setAvailableForRent(true)}
+              >
+                <Text style={[styles.toggleBtnText, availableForRent && styles.toggleBtnTextActive]}>대여가능</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.toggleBtn, !availableForRent && styles.toggleBtnActive]}
+                onPress={() => setAvailableForRent(false)}
+              >
+                <Text style={[styles.toggleBtnText, !availableForRent && styles.toggleBtnTextActive]}>대여불가</Text>
+              </TouchableOpacity>
+            </View>
+
             {/* 주소 검색 */}
             <Text style={styles.sectionTitle}>주소 검색</Text>
 
@@ -438,7 +475,9 @@ export default function EditSpace() {
             {/* 사진 미리보기 */}
             {images.length > 0 && (
               <View style={styles.imagePreviewContainer}>
-                {images.map((uri, index) => (
+                {images.map((img, index) => {
+                  const uri = typeof img === "string" ? img : img.uri;
+                  return (
                   <View key={index} style={styles.imagePreviewWrapper}>
                     <Image source={{ uri }} style={styles.imagePreview} />
                     <Pressable
@@ -448,7 +487,8 @@ export default function EditSpace() {
                       <Ionicons name="close-circle" size={20} color="#fff" />
                     </Pressable>
                   </View>
-                ))}
+                  );
+                })}
               </View>
             )}
 
@@ -469,23 +509,31 @@ export default function EditSpace() {
               onChangeText={setDesc}
             />
 
-            {/* 보관가능한 물품 */}
-            <Text style={styles.sectionTitle}>보관가능한 물품</Text>
-            <View style={styles.chipRowWrap}>
-              {STORAGE_CATEGORIES.map((cat) => {
-                const active = categories.includes(cat);
-                return (
-                  <TouchableOpacity
-                    key={cat}
-                    onPress={() => toggleCategory(cat)}
-                    style={[styles.chip, active && styles.chipActive]}
-                  >
-                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                      {cat}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+            {/* 보관장소 */}
+            <Text style={styles.sectionTitle}>보관장소</Text>
+            <View style={styles.dropdownWrap}>
+              <Pressable
+                style={styles.dropdownTrigger}
+                onPress={() => setPlaceTypeDropdownOpen((o) => !o)}
+              >
+                <Text style={placeType ? styles.dropdownText : styles.dropdownPlaceholder}>
+                  {placeType ?? "선택하세요"}
+                </Text>
+                <Ionicons name={placeTypeDropdownOpen ? "chevron-up" : "chevron-down"} size={20} color="#6B7280" />
+              </Pressable>
+              {placeTypeDropdownOpen && (
+                <View style={styles.dropdownMenu}>
+                  {STORAGE_PLACE_TYPES.map((opt) => (
+                    <Pressable
+                      key={opt}
+                      style={styles.dropdownItem}
+                      onPress={() => selectPlaceType(opt)}
+                    >
+                      <Text style={styles.dropdownItemText}>{opt}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
 
             {/* 보관가능시간 */}
@@ -564,11 +612,14 @@ export default function EditSpace() {
             <Text style={styles.sectionTitle}>보관가격(원/시간)</Text>
             <View style={styles.priceRow}>
               {PRICE_OPTIONS.map((p) => {
-                const active = hourlyPrice === p;
+                const active = !priceNegotiable && hourlyPrice === p;
                 return (
                   <TouchableOpacity
                     key={p}
-                    onPress={() => setHourlyPrice(p)}
+                    onPress={() => {
+                      setPriceNegotiable(false);
+                      setHourlyPrice(p);
+                    }}
                     style={[styles.priceChip, active && styles.priceChipActive]}
                   >
                     <Text
@@ -582,6 +633,17 @@ export default function EditSpace() {
                   </TouchableOpacity>
                 );
               })}
+              <TouchableOpacity
+                onPress={() => {
+                  setPriceNegotiable(true);
+                  setHourlyPrice(null);
+                }}
+                style={[styles.priceChip, priceNegotiable && styles.priceChipActive]}
+              >
+                <Text style={[styles.priceChipText, priceNegotiable && styles.priceChipTextActive]}>
+                  기타협의
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <Pressable
@@ -649,6 +711,31 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#111827",
     marginTop: 4,
+  },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
+  },
+  toggleBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  toggleBtnActive: {
+    backgroundColor: "#2477ff",
+    borderColor: "#2477ff",
+  },
+  toggleBtnText: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  toggleBtnTextActive: {
+    color: "#fff",
+    fontWeight: "600",
   },
 
   helper: {
@@ -749,6 +836,39 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     fontWeight: "500",
   },
+
+  dropdownWrap: {
+    position: "relative",
+    marginTop: 8,
+  },
+  dropdownTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 44,
+    backgroundColor: "#fff",
+  },
+  dropdownText: { fontSize: 16, color: "#111827" },
+  dropdownPlaceholder: { fontSize: 16, color: "#9CA3AF" },
+  dropdownMenu: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    overflow: "hidden",
+  },
+  dropdownItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  dropdownItemText: { fontSize: 15, color: "#374151" },
 
   chipRowWrap: {
     flexDirection: "row",

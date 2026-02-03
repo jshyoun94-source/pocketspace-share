@@ -1,0 +1,2 @@
+# Cloud Functions 배포 시 제외
+functions/ios/

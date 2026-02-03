@@ -15,8 +15,11 @@ import {
   deleteDoc,
   doc,
   updateDoc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
 } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -34,8 +37,9 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { auth, db, storage } from "../../firebase";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { auth, db } from "../../firebase";
+import * as FileSystem from "expo-file-system/legacy";
+import { uploadBase64ToStorage } from "../../utils/uploadImageToStorage";
 import * as ImagePicker from "expo-image-picker";
 import { onAuthStateChanged } from "firebase/auth";
 
@@ -71,6 +75,7 @@ export default function RequestScreen() {
   const [requestPrice, setRequestPrice] = useState("");
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [posting, setPosting] = useState(false);
+  const [requestUnreadCount, setRequestUnreadCount] = useState(0);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -96,6 +101,61 @@ export default function RequestScreen() {
       }
     })();
   }, []);
+
+  // 동네부탁 채팅 안 읽은 개수 구독 (data는 스냅 시점의 객체로 저장해야 나중에 안전히 참조 가능)
+  const ownerChatsRef = useRef<{ id: string; data: Record<string, unknown> | undefined }[]>([]);
+  const customerChatsRef = useRef<{ id: string; data: Record<string, unknown> | undefined }[]>([]);
+  useEffect(() => {
+    if (!currentUser) {
+      setRequestUnreadCount(0);
+      return;
+    }
+    const uid = currentUser.uid;
+    const chatsRef = collection(db, "chats");
+    const ownerQ = query(chatsRef, where("ownerId", "==", uid));
+    const customerQ = query(chatsRef, where("customerId", "==", uid));
+
+    const computeAndSet = () => {
+      const ownerDocs = ownerChatsRef.current;
+      const customerDocs = customerChatsRef.current;
+      let total = 0;
+      const seen = new Set<string>();
+      ownerDocs.forEach((d) => {
+        const data = d.data;
+        if (!data || !data.requestId || seen.has(d.id)) return;
+        seen.add(d.id);
+        total += (data.unreadByOwner as number) ?? 0;
+      });
+      customerDocs.forEach((d) => {
+        const data = d.data;
+        if (!data || !data.requestId || seen.has(d.id)) return;
+        seen.add(d.id);
+        total += (data.unreadByCustomer as number) ?? 0;
+      });
+      setRequestUnreadCount(total);
+    };
+
+    const unsubOwner = onSnapshot(
+      ownerQ,
+      (snap) => {
+        ownerChatsRef.current = snap.docs.map((d) => ({ id: d.id, data: d.data() }));
+        computeAndSet();
+      },
+      () => setRequestUnreadCount(0)
+    );
+    const unsubCustomer = onSnapshot(
+      customerQ,
+      (snap) => {
+        customerChatsRef.current = snap.docs.map((d) => ({ id: d.id, data: d.data() }));
+        computeAndSet();
+      },
+      () => setRequestUnreadCount(0)
+    );
+    return () => {
+      unsubOwner();
+      unsubCustomer();
+    };
+  }, [currentUser?.uid]);
 
   // 거리 계산
   const calculateDistance = (
@@ -215,7 +275,7 @@ export default function RequestScreen() {
   const pickImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],
         allowsMultipleSelection: true,
         quality: 0.8,
       });
@@ -254,12 +314,16 @@ export default function RequestScreen() {
       const uploadedImageUrls: string[] = [];
       for (const localUri of selectedImages) {
         try {
-          const response = await fetch(localUri);
-          const blob = await response.blob();
-          const fileName = `requests/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
-          const imageRef = ref(storage, fileName);
-          await uploadBytes(imageRef, blob);
-          const downloadURL = await getDownloadURL(imageRef);
+          const base64 = await FileSystem.readAsStringAsync(localUri, {
+            encoding: "base64",
+          });
+          if (!base64) continue;
+          const fileName = `requests/${currentUser.uid}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+          const downloadURL = await uploadBase64ToStorage(
+            base64,
+            fileName,
+            "image/jpeg"
+          );
           uploadedImageUrls.push(downloadURL);
         } catch (e) {
           console.error("이미지 업로드 실패:", e);
@@ -302,7 +366,7 @@ export default function RequestScreen() {
     }
   };
 
-  // 부탁 수락
+  // 부탁 수락 → 채팅 생성 후 채팅 목록/채팅방으로 이동 가능
   const handleAccept = async (request: Request) => {
     if (!currentUser) {
       Alert.alert("로그인 필요", "부탁을 수락하려면 로그인이 필요합니다.", [
@@ -322,7 +386,55 @@ export default function RequestScreen() {
               status: "in_progress",
               acceptedBy: currentUser.uid,
             });
-            Alert.alert("완료", "부탁을 수락했습니다. 채팅을 통해 연락하세요.");
+
+            // 동네부탁 채팅 생성 (이미 있으면 스킵)
+            const chatsRef = collection(db, "chats");
+            const existing = await getDocs(
+              query(chatsRef, where("requestId", "==", request.id))
+            );
+            let chatId: string | null = null;
+            if (!existing.empty) {
+              chatId = existing.docs[0].id;
+            } else {
+              const userSnap = await getDoc(doc(db, "users", currentUser.uid));
+              const accepterName =
+                userSnap.data()?.nickname ||
+                userSnap.data()?.name ||
+                "사용자";
+              const chatRef = await addDoc(chatsRef, {
+                requestId: request.id,
+                spaceId: request.id,
+                spaceTitle: "동네부탁",
+                spaceAddress: "",
+                spaceImages: [],
+                ownerId: request.authorId,
+                ownerName: request.authorName,
+                customerId: currentUser.uid,
+                customerName: accepterName,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+              chatId = chatRef.id;
+              await addDoc(
+                collection(db, "chats", chatRef.id, "messages"),
+                {
+                  text: "부탁이 수락되어 채팅이 시작되었습니다.",
+                  senderId: "system",
+                  type: "system",
+                  createdAt: serverTimestamp(),
+                }
+              );
+              await updateDoc(doc(db, "chats", chatRef.id), {
+                lastMessage: "부탁이 수락되어 채팅이 시작되었습니다.",
+                lastMessageTime: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+            }
+
+            Alert.alert("완료", "부탁을 수락했습니다. 채팅을 통해 연락하세요.", [
+              { text: "채팅하기", onPress: () => chatId && router.push(`/chat/${chatId}` as any) },
+              { text: "확인" },
+            ]);
           } catch (e) {
             console.error("부탁 수락 실패:", e);
             Alert.alert("오류", "부탁 수락에 실패했습니다.");
@@ -381,7 +493,14 @@ export default function RequestScreen() {
           <FlatList
             data={requests}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[
+              styles.listContent,
+              {
+                paddingBottom:
+                  insets.bottom +
+                  (Platform.OS === "ios" ? 200 : 140),
+              },
+            ]}
             renderItem={({ item }) => (
               <View style={styles.requestCard}>
                 <View style={styles.requestHeader}>
@@ -455,37 +574,97 @@ export default function RequestScreen() {
           />
         )}
 
-        {/* 글쓰기 버튼 */}
-        <Pressable
-          onPress={() => {
-            if (!currentUser) {
-              Alert.alert("로그인 필요", "부탁을 등록하려면 로그인이 필요합니다.", [
-                { text: "취소", style: "cancel" },
-                { text: "로그인", onPress: () => router.push("/(auth)/login") },
-              ]);
-              return;
-            }
-            setWriteModalVisible(true);
-          }}
+        {/* 부탁 등록(가운데) + 채팅 버튼(오른쪽 옆) */}
+        <View
           style={{
             position: "absolute",
             bottom: Platform.OS === "ios" ? 152 : 128,
-            alignSelf: "center",
-            backgroundColor: "#2477ff",
-            borderRadius: 26,
-            paddingHorizontal: 22,
-            paddingVertical: 12,
-            shadowColor: "#000",
-            shadowOpacity: 0.1,
-            shadowRadius: 5,
-            elevation: 4,
+            left: 0,
+            right: 0,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
             zIndex: 10,
           }}
         >
-          <Text style={{ color: "white", fontWeight: "700", fontSize: 16 }}>
-            + 부탁 등록
-          </Text>
-        </Pressable>
+          {/* 부탁 등록이 화면 정중앙에 오도록 왼쪽에 채팅 버튼 너비+간격만큼 spacer */}
+          <View style={{ width: 52 + 14, height: 52 }} />
+          <Pressable
+            onPress={() => {
+              if (!currentUser) {
+                Alert.alert("로그인 필요", "부탁을 등록하려면 로그인이 필요합니다.", [
+                  { text: "취소", style: "cancel" },
+                  { text: "로그인", onPress: () => router.push("/(auth)/login") },
+                ]);
+                return;
+              }
+              setWriteModalVisible(true);
+            }}
+            style={{
+              backgroundColor: "#2477ff",
+              borderRadius: 26,
+              paddingHorizontal: 22,
+              paddingVertical: 12,
+              shadowColor: "#000",
+              shadowOpacity: 0.1,
+              shadowRadius: 5,
+              elevation: 4,
+            }}
+          >
+            <Text style={{ color: "white", fontWeight: "700", fontSize: 16 }}>
+              + 부탁 등록
+            </Text>
+          </Pressable>
+          <View style={{ width: 14, height: 52 }} />
+          <Pressable
+            onPress={() => {
+              if (!currentUser) {
+                Alert.alert("로그인 필요", "채팅 목록을 보려면 로그인이 필요합니다.", [
+                  { text: "취소", style: "cancel" },
+                  { text: "로그인", onPress: () => router.push("/(auth)/login") },
+                ]);
+                return;
+              }
+              router.push("/request/chats" as any);
+            }}
+            style={{
+              backgroundColor: "#fff",
+              width: 52,
+              height: 52,
+              borderRadius: 26,
+              justifyContent: "center",
+              alignItems: "center",
+              shadowColor: "#000",
+              shadowOpacity: 0.1,
+              shadowRadius: 5,
+              elevation: 4,
+              borderWidth: 1,
+              borderColor: "#E5E7EB",
+            }}
+          >
+            <Ionicons name="chatbubbles-outline" size={26} color="#2477ff" />
+            {requestUnreadCount > 0 && (
+              <View
+                style={{
+                  position: "absolute",
+                  top: 4,
+                  right: 4,
+                  minWidth: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  backgroundColor: "#EF4444",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  paddingHorizontal: 4,
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>
+                  {requestUnreadCount > 99 ? "99+" : requestUnreadCount}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        </View>
 
         {/* 글쓰기 모달 */}
         <Modal

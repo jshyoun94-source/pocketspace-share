@@ -1,0 +1,8 @@
+# Cursor 인덱싱 제외 → 렉 감소
+functions_ios_backup/
+functions/node_modules/
+node_modules/
+ios/Pods/
+android/.gradle/
+.expo/
+.firebase/
