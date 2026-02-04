@@ -88,8 +88,7 @@ export const TERMS_CONTENT = `PocketSpace 이용약관
 1. 회사와 회원은 서비스와 관련하여 발생한 분쟁을 원만하게 해결하기 위하여 필요한 모든 노력을 하여야 합니다.
 
 문의처
-- 이메일: support@pocketspace.com
-- 고객센터: 1588-0000`;
+- 고객센터(문의): pocketspace26@naver.com`;
 
 export const PRIVACY_CONTENT = `PocketSpace 개인정보처리방침
 
@@ -152,7 +151,7 @@ PocketSpace(이하 "회사"라 함)는 개인정보보호법에 따라 이용자
 
 제8조 (개인정보 보호책임자)
 - 개인정보 보호책임자: PocketSpace 운영팀
-- 연락처: support@pocketspace.com
+- 고객센터(문의): pocketspace26@naver.com
 
 제9조 (개인정보의 안전성 확보조치)
 회사는 개인정보의 안전성 확보를 위해 다음과 같은 조치를 취하고 있습니다:
@@ -164,8 +163,7 @@ PocketSpace(이하 "회사"라 함)는 개인정보보호법에 따라 이용자
 이 개인정보처리방침은 시행일로부터 적용되며, 법령 및 방침에 따른 변경내용의 추가, 삭제 및 정정이 있는 경우에는 변경사항의 시행 7일 전부터 공지사항을 통하여 고지할 것입니다.
 
 문의처
-- 이메일: support@pocketspace.com
-- 고객센터: 1588-0000`;
+- 고객센터(문의): pocketspace26@naver.com`;
 
 // 사업 웹·앱에서 이용약관/개인정보처리방침 전체 보기 URL
 export const TERMS_URL = "https://tangential-sled-352810.web.app/terms.html";
