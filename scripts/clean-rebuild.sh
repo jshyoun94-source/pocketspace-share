@@ -1,29 +1,36 @@
 #!/bin/bash
-# 변동사항이 적용되지 않을 때 사용하는 완전 초기화 + 재빌드 스크립트
-# (대소문자/캐시 등으로 번들 스킵되는 문제 해결용)
+# 변동사항이 적용되지 않을 때: 캐시 전부 지우고 Metro 하나만 켠 뒤 앱 실행
+# (실제 적용된 코드로 앱이 뜨도록 함)
 
 set -e
 cd "$(dirname "$0")/.."
 
-echo "🧹 1. Metro/Expo/Node 캐시 삭제 중..."
-rm -rf node_modules/.cache 2>/dev/null || true
-rm -rf .expo 2>/dev/null || true
-# Watchman 캐시 (설치되어 있으면)
+echo "🔌 1. 기존 Metro 종료 (8081, 8082)..."
+lsof -ti:8081 | xargs kill -9 2>/dev/null || true
+lsof -ti:8082 | xargs kill -9 2>/dev/null || true
+sleep 2
+
+echo "🧹 2. Metro/Expo/Node 캐시 삭제..."
+rm -rf node_modules/.cache .expo 2>/dev/null || true
+rm -rf "$TMPDIR/metro-"* "$TMPDIR/haste-"* "$TMPDIR/react-"* 2>/dev/null || true
 if command -v watchman &> /dev/null; then
-  echo "   Watchman 캐시 삭제..."
   watchman watch-del-all 2>/dev/null || true
 fi
 
-echo "📱 2. iOS/Xcode 캐시 정리..."
+echo "📱 3. iOS 빌드 캐시 삭제..."
 rm -rf ~/Library/Developer/Xcode/DerivedData/PocketSpace-* 2>/dev/null || true
 rm -rf ios/build 2>/dev/null || true
 
-echo "✅ 3. 캐시 삭제 완료."
+echo "✅ 캐시 정리 완료. Metro 실행 후 앱 빌드합니다..."
 echo ""
-echo "다음 명령을 순서대로 실행하세요:"
-echo "  1) npx expo start --clear"
-echo "  2) (다른 터미널에서) npx expo run:ios"
-echo ""
-echo "또는 한 번에: npx expo run:ios --no-bundler 로 빌드 후"
-echo "별도 터미널에서 npx expo start --clear 실행하여 Metro 연결"
-echo ""
+
+# Metro를 백그라운드로 (현재 프로젝트 포트 8081)
+npx expo start -c --port 8081 &
+METRO_PID=$!
+trap "kill $METRO_PID 2>/dev/null || true" EXIT
+
+echo "⏳ Metro 기동 대기 (약 25초)..."
+sleep 25
+
+echo "📲 iOS 앱 빌드 및 실행 (이 Metro에 연결됩니다)..."
+npx expo run:ios --no-bundler

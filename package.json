@@ -3,12 +3,18 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "expo start -c",
+    "start": "expo start -c --port 8081",
     "clean": "rm -rf .expo node_modules/.cache",
-    "start:clean": "npm run clean && expo start -c",
+    "start:clean": "npm run clean && expo start -c --port 8081",
     "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo start --web"
+    "ios": "expo run:ios --no-bundler",
+    "web": "expo start --web",
+    "fix-icon": "node scripts/fix-icon-no-white.js",
+    "dev:ios": "expo start -c --port 8081",
+    "dev": "expo start -c --port 8081 & sleep 15 && expo run:ios --no-bundler",
+    "dev:clean": "npm run clean && expo start -c --port 8081 & sleep 18 && expo run:ios --no-bundler",
+    "dev:fresh": "npm run clean && rm -rf $TMPDIR/metro-* $TMPDIR/haste-* $TMPDIR/react-* 2>/dev/null; (lsof -ti:8081 | xargs kill -9 2>/dev/null); (lsof -ti:8082 | xargs kill -9 2>/dev/null); true; expo start -c --port 8081 & sleep 20 && expo run:ios --no-bundler",
+    "ios:apply": "bash scripts/clean-rebuild.sh"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -16,6 +22,7 @@
     "@react-native-seoul/kakao-login": "^5.4.2",
     "@react-navigation/native": "^7.1.8",
     "expo": "~54.0.20",
+    "expo-apple-authentication": "~7.1.0",
     "expo-auth-session": "^7.0.8",
     "expo-constants": "~18.0.10",
     "expo-crypto": "^15.0.7",
@@ -31,6 +38,7 @@
     "expo-status-bar": "~3.0.8",
     "expo-web-browser": "~15.0.8",
     "firebase": "^12.4.0",
+    "js-sha256": "^0.10.1",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
@@ -53,6 +61,7 @@
     "dotenv": "^17.2.3",
     "metro-config": "^0.83.3",
     "react-test-renderer": "19.1.0",
+    "sharp": "^0.33.5",
     "typescript": "~5.9.2"
   },
   "private": true

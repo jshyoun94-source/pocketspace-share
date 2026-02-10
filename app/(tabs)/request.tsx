@@ -18,6 +18,7 @@ import {
   getDoc,
   setDoc,
   serverTimestamp,
+  deleteField,
 } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -38,6 +39,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth, db } from "../../firebase";
+import { canPostToday } from "../../utils/checkDailyPostLimit";
 import * as FileSystem from "expo-file-system/legacy";
 import { uploadBase64ToStorage } from "../../utils/uploadImageToStorage";
 import * as ImagePicker from "expo-image-picker";
@@ -84,22 +86,43 @@ export default function RequestScreen() {
     return unsubscribe;
   }, []);
 
-  // 현재 위치 가져오기
+  // 현재 위치 가져오기 (타임아웃·폴백으로 iPad 등에서 무한 로딩 방지)
+  const DEFAULT_LOCATION = { lat: 37.5665, lng: 126.978 }; // 서울 시청
   useEffect(() => {
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      if (!cancelled) {
+        setCurrentLocation((prev) => prev ?? DEFAULT_LOCATION);
+      }
+    }, 6000); // 6초 후에도 위치 못 받으면 기본값 사용
+
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
+        if (cancelled) return;
         if (status === "granted") {
           const loc = await Location.getCurrentPositionAsync({});
-          setCurrentLocation({
-            lat: loc.coords.latitude,
-            lng: loc.coords.longitude,
-          });
+          if (!cancelled) {
+            setCurrentLocation({
+              lat: loc.coords.latitude,
+              lng: loc.coords.longitude,
+            });
+          }
+        } else {
+          setCurrentLocation(DEFAULT_LOCATION);
         }
       } catch (e) {
         console.warn("위치 가져오기 실패:", e);
+        if (!cancelled) setCurrentLocation(DEFAULT_LOCATION);
+      } finally {
+        clearTimeout(timeout);
       }
     })();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
   }, []);
 
   // 동네부탁 채팅 안 읽은 개수 구독 (data는 스냅 시점의 객체로 저장해야 나중에 안전히 참조 가능)
@@ -340,6 +363,13 @@ export default function RequestScreen() {
         authorName = userData.nickname || userData.name || "익명";
       }
 
+      const canPost = await canPostToday(db, "neighborhoodRequests", "authorId", currentUser.uid);
+      if (!canPost) {
+        Alert.alert("안내", "하루에 5건까지 등록이 가능합니다.");
+        setPosting(false);
+        return;
+      }
+
       await addDoc(collection(db, "neighborhoodRequests"), {
         authorId: currentUser.uid,
         authorName,
@@ -442,6 +472,54 @@ export default function RequestScreen() {
         },
       },
     ]);
+  };
+
+  // 게시자: 부탁 글 삭제
+  const handleDelete = (request: Request) => {
+    if (request.authorId !== currentUser?.uid) return;
+    Alert.alert("부탁 삭제", "이 부탁 글을 삭제하시겠습니까?", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "삭제",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deleteDoc(doc(db, "neighborhoodRequests", request.id));
+            Alert.alert("완료", "삭제되었습니다.");
+          } catch (e) {
+            console.error("부탁 삭제 실패:", e);
+            Alert.alert("오류", "삭제에 실패했습니다.");
+          }
+        },
+      },
+    ]);
+  };
+
+  // 게시자: 진행중 → 다시 받기 (상태 되돌리기)
+  const handleResetStatus = (request: Request) => {
+    if (request.authorId !== currentUser?.uid || request.status !== "in_progress") return;
+    Alert.alert(
+      "다시 받기",
+      "진행을 취소하고 새로운 분의 수락을 다시 받으시겠습니까? (기존에 수락한 분과의 채팅은 그대로 유지됩니다.)",
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "다시 받기",
+          onPress: async () => {
+            try {
+              await updateDoc(doc(db, "neighborhoodRequests", request.id), {
+                status: "open",
+                acceptedBy: deleteField(),
+              });
+              Alert.alert("완료", "다시 수락을 받을 수 있습니다.");
+            } catch (e) {
+              console.error("상태 되돌리기 실패:", e);
+              Alert.alert("오류", "처리에 실패했습니다.");
+            }
+          },
+        },
+      ]
+    );
   };
 
   const getStatusColor = (status: string) => {
@@ -550,15 +628,35 @@ export default function RequestScreen() {
                   <Text style={styles.priceText}>
                     {item.price.toLocaleString()}원
                   </Text>
-                  {item.status === "open" &&
-                    item.authorId !== currentUser?.uid && (
-                      <Pressable
-                        style={styles.acceptButton}
-                        onPress={() => handleAccept(item)}
-                      >
-                        <Text style={styles.acceptButtonText}>수락하기</Text>
-                      </Pressable>
+                  <View style={styles.footerActions}>
+                    {item.status === "open" &&
+                      item.authorId !== currentUser?.uid && (
+                        <Pressable
+                          style={styles.acceptButton}
+                          onPress={() => handleAccept(item)}
+                        >
+                          <Text style={styles.acceptButtonText}>수락하기</Text>
+                        </Pressable>
+                      )}
+                    {item.authorId === currentUser?.uid && (
+                      <>
+                        {item.status === "in_progress" && (
+                          <Pressable
+                            style={styles.resetButton}
+                            onPress={() => handleResetStatus(item)}
+                          >
+                            <Text style={styles.resetButtonText}>다시 받기</Text>
+                          </Pressable>
+                        )}
+                        <Pressable
+                          style={styles.deleteButton}
+                          onPress={() => handleDelete(item)}
+                        >
+                          <Text style={styles.deleteButtonText}>삭제</Text>
+                        </Pressable>
+                      </>
                     )}
+                  </View>
                 </View>
               </View>
             )}
@@ -901,6 +999,33 @@ const styles = StyleSheet.create({
   acceptButtonText: {
     fontSize: 14,
     fontWeight: "700",
+    color: "#fff",
+  },
+  footerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  resetButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: "#F59E0B",
+    borderRadius: 8,
+  },
+  resetButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  deleteButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: "#EF4444",
+    borderRadius: 8,
+  },
+  deleteButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
     color: "#fff",
   },
   modalContainer: {

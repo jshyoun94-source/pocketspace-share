@@ -1,17 +1,19 @@
 // app/(auth)/login.tsx
 import { Stack, useRouter } from "expo-router";
+import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import AppleLoginButton from "../../components/AppleLoginButton";
 import GoogleLoginButton from "../../components/GoogleLoginButton";
 import KakaoLoginButton from "../../components/KakaoLoginButton";
 import NaverLoginButton from "../../components/NaverLoginButton";
@@ -33,7 +35,28 @@ export default function LoginScreen() {
   const [privacyAgreed, setPrivacyAgreed] = useState(false);
   const [termsContentVisible, setTermsContentVisible] = useState(false);
   const [privacyContentVisible, setPrivacyContentVisible] = useState(false);
-  const [pendingLoginType, setPendingLoginType] = useState<"naver" | "kakao" | "google" | null>(null);
+  const [pendingLoginType, setPendingLoginType] = useState<"naver" | "kakao" | "google" | "apple" | null>(null);
+  const prevAuthUid = useRef<string | null>(auth.currentUser?.uid ?? null);
+  const checkTermsRef = useRef<(type: "naver" | "kakao" | "google" | "apple") => Promise<void>>(() => Promise.resolve());
+  const appleHandledRef = useRef(false);
+
+  // Auth가 null → user로 바뀔 때 (Apple은 버튼에서 처리하므로 보조용으로만 사용)
+  useEffect(() => {
+    let delayTimer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = onAuthStateChanged(auth, (user) => {
+      const uid = user?.uid ?? null;
+      if (prevAuthUid.current === null && uid !== null && !appleHandledRef.current) {
+        delayTimer = setTimeout(() => {
+          checkTermsAgreement("apple");
+        }, 800);
+      }
+      prevAuthUid.current = uid;
+    });
+    return () => {
+      if (delayTimer) clearTimeout(delayTimer);
+      unsub();
+    };
+  }, []);
 
   // 닉네임 저장 및 홈으로 이동
   const handleNicknameSubmit = async () => {
@@ -61,13 +84,18 @@ export default function LoginScreen() {
     }
   };
 
-  // 이용약관 동의 확인
-  const checkTermsAgreement = async (loginType: "naver" | "kakao" | "google") => {
+  // 이용약관 동의 확인 (Apple 로그인 시 Firestore 쓰기 지연 대비 재시도)
+  const checkTermsAgreement = async (loginType: "naver" | "kakao" | "google" | "apple", retry = 0) => {
     if (!auth.currentUser) return;
     
     try {
       const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
       const userData = userDoc.data();
+      
+      if (!userDoc.exists() && retry < 2) {
+        await new Promise((r) => setTimeout(r, 400 + retry * 300));
+        return checkTermsAgreement(loginType, retry + 1);
+      }
       
       // 이미 약관에 동의한 경우 바로 닉네임 확인
       if (userData?.termsAgreed && userData?.privacyAgreed) {
@@ -80,7 +108,10 @@ export default function LoginScreen() {
       setTermsModalVisible(true);
     } catch (e) {
       console.error("약관 동의 확인 실패:", e);
-      // 에러 발생 시에도 약관 동의 모달 표시
+      if (retry < 2) {
+        await new Promise((r) => setTimeout(r, 400 + retry * 300));
+        return checkTermsAgreement(loginType, retry + 1);
+      }
       setPendingLoginType(loginType);
       setTermsModalVisible(true);
     }
@@ -130,15 +161,20 @@ export default function LoginScreen() {
       if (!userData?.nickname) {
         setNicknameModalVisible(true);
       } else {
-        // 닉네임이 있으면 바로 홈으로
+        // 닉네임이 있으면 바로 홈으로 (iOS에서 한 번만 반영되지 않을 수 있어 짧은 지연 후 한 번 더 시도)
         router.replace("/(tabs)");
+        setTimeout(() => router.replace("/(tabs)"), 300);
       }
     } catch (e) {
       console.error("닉네임 확인 실패:", e);
-      // 에러 발생 시에도 홈으로 이동
       router.replace("/(tabs)");
+      setTimeout(() => router.replace("/(tabs)"), 300);
     }
   };
+
+  useEffect(() => {
+    checkTermsRef.current = checkTermsAgreement;
+  });
 
   const handleKakaoPress = async () => {
     try {
@@ -159,6 +195,15 @@ export default function LoginScreen() {
     await checkTermsAgreement("google");
   };
 
+  const handleAppleSuccess = async () => {
+    try {
+      await checkTermsRef.current("apple");
+    } catch (e) {
+      console.error("Apple 로그인 후 약관/닉네임 확인 실패:", e);
+      router.replace("/(tabs)");
+    }
+  };
+
   const allAgreed = termsAgreed && privacyAgreed;
 
   return (
@@ -168,6 +213,13 @@ export default function LoginScreen() {
         <Text style={{ fontSize: 24, fontWeight: "700", marginBottom: 40 }}>
           로그인
         </Text>
+
+        {/* Apple 로그인: 항상 렌더 (iOS에서만 동작, Android는 탭 시 토스트). 조건 제거해 예전 번들/캐시 시에도 노출 보장 */}
+        <AppleLoginButton
+          onAppleStart={() => { appleHandledRef.current = true; }}
+          onSuccess={handleAppleSuccess}
+        />
+        <View style={{ height: 16 }} />
 
         <NaverLoginButton onSuccess={handleNaverSuccess} />
         <View style={{ height: 16 }} />
@@ -179,7 +231,13 @@ export default function LoginScreen() {
         <GoogleLoginButton onSuccess={handleGoogleSuccess} />
 
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => {
+            if (typeof (router as any).canGoBack === "function" && (router as any).canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(tabs)");
+            }
+          }}
           style={{ marginTop: 40 }}
         >
           <Text style={{ color: "#6B7280" }}>뒤로가기</Text>

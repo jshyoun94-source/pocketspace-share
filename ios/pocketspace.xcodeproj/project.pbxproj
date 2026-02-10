@@ -7,27 +7,27 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		030E18F1E02863D6E0F3C843 /* libPods-PocketSpace.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 60D2655F76D8E585921FC15C /* libPods-PocketSpace.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		15F4A5D7502CAB734FCA6BBC /* Pods_PocketSpace.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F04712C3371EF6D35BFF5377 /* Pods_PocketSpace.framework */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		9B55FA08C31D757A205CC986 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9D760BDEB6031B682C40C44C /* PrivacyInfo.xcprivacy */; };
-		9F05E50820F3CC0BFBF467FF /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1FD0CC5D4B1F8DB176AF70 /* ExpoModulesProvider.swift */; };
+		682D3659370D776C1144FEE7 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA678B7A9738CF23621F5351 /* PrivacyInfo.xcprivacy */; };
+		7618B750A1A4896737412370 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5BCCD46F83DC195D9096E91 /* ExpoModulesProvider.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		11AEDE883E2172530EB80623 /* Pods-PocketSpace.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PocketSpace.debug.xcconfig"; path = "Target Support Files/Pods-PocketSpace/Pods-PocketSpace.debug.xcconfig"; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* PocketSpace.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketSpace.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = PocketSpace/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = PocketSpace/Info.plist; sourceTree = "<group>"; };
-		5EB2338ADEEA773804B10901 /* Pods-PocketSpace.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PocketSpace.release.xcconfig"; path = "Target Support Files/Pods-PocketSpace/Pods-PocketSpace.release.xcconfig"; sourceTree = "<group>"; };
-		67CE73C46CBA8D37F3AF9380 /* Pods-PocketSpace.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PocketSpace.debug.xcconfig"; path = "Target Support Files/Pods-PocketSpace/Pods-PocketSpace.debug.xcconfig"; sourceTree = "<group>"; };
-		9D760BDEB6031B682C40C44C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = PocketSpace/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		60D2655F76D8E585921FC15C /* libPods-PocketSpace.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-PocketSpace.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		771961BF22125A552E93E624 /* Pods-PocketSpace.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PocketSpace.release.xcconfig"; path = "Target Support Files/Pods-PocketSpace/Pods-PocketSpace.release.xcconfig"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = PocketSpace/SplashScreen.storyboard; sourceTree = "<group>"; };
+		AA678B7A9738CF23621F5351 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = PocketSpace/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		EC1FD0CC5D4B1F8DB176AF70 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-PocketSpace/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		D5BCCD46F83DC195D9096E91 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-PocketSpace/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		F04712C3371EF6D35BFF5377 /* Pods_PocketSpace.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_PocketSpace.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = PocketSpace/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* PocketSpace-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "PocketSpace-Bridging-Header.h"; path = "PocketSpace/PocketSpace-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -37,7 +37,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				15F4A5D7502CAB734FCA6BBC /* Pods_PocketSpace.framework in Frameworks */,
+				030E18F1E02863D6E0F3C843 /* libPods-PocketSpace.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -53,34 +53,35 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				9D760BDEB6031B682C40C44C /* PrivacyInfo.xcprivacy */,
+				AA678B7A9738CF23621F5351 /* PrivacyInfo.xcprivacy */,
 			);
 			name = PocketSpace;
-			sourceTree = "<group>";
-		};
-		294C3DBC691F9D8899676905 /* ExpoModulesProviders */ = {
-			isa = PBXGroup;
-			children = (
-				F8CADD4A59650C772E687BD2 /* PocketSpace */,
-			);
-			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				F04712C3371EF6D35BFF5377 /* Pods_PocketSpace.framework */,
+				60D2655F76D8E585921FC15C /* libPods-PocketSpace.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		72CE3C4636879A3079644209 /* Pods */ = {
+		3EA6B9FA95A21B284E79FD24 /* PocketSpace */ = {
 			isa = PBXGroup;
 			children = (
-				67CE73C46CBA8D37F3AF9380 /* Pods-PocketSpace.debug.xcconfig */,
-				5EB2338ADEEA773804B10901 /* Pods-PocketSpace.release.xcconfig */,
+				D5BCCD46F83DC195D9096E91 /* ExpoModulesProvider.swift */,
 			);
+			name = PocketSpace;
+			sourceTree = "<group>";
+		};
+		662581B169BDCD20FFE1EE86 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				11AEDE883E2172530EB80623 /* Pods-PocketSpace.debug.xcconfig */,
+				771961BF22125A552E93E624 /* Pods-PocketSpace.release.xcconfig */,
+			);
+			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -98,8 +99,8 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				72CE3C4636879A3079644209 /* Pods */,
-				294C3DBC691F9D8899676905 /* ExpoModulesProviders */,
+				662581B169BDCD20FFE1EE86 /* Pods */,
+				C70511656B57B474E6941B97 /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -123,12 +124,12 @@
 			path = PocketSpace/Supporting;
 			sourceTree = "<group>";
 		};
-		F8CADD4A59650C772E687BD2 /* PocketSpace */ = {
+		C70511656B57B474E6941B97 /* ExpoModulesProviders */ = {
 			isa = PBXGroup;
 			children = (
-				EC1FD0CC5D4B1F8DB176AF70 /* ExpoModulesProvider.swift */,
+				3EA6B9FA95A21B284E79FD24 /* PocketSpace */,
 			);
-			name = PocketSpace;
+			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -139,13 +140,13 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "PocketSpace" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				C520DB59B30F4B83D967DB8E /* [Expo] Configure project */,
+				A52539832782B1A7D28EC577 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				5DA014996B38B438C765BD6D /* [CP] Embed Pods Frameworks */,
+				6939853FCD74D009F8727000 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -165,7 +166,9 @@
 				LastUpgradeCheck = 1130;
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
+						DevelopmentTeam = YT2B98FPV4;
 						LastSwiftMigration = 1250;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -195,7 +198,7 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				9B55FA08C31D757A205CC986 /* PrivacyInfo.xcprivacy in Resources */,
+				682D3659370D776C1144FEE7 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -241,7 +244,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		5DA014996B38B438C765BD6D /* [CP] Embed Pods Frameworks */ = {
+		6939853FCD74D009F8727000 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -303,7 +306,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-PocketSpace/Pods-PocketSpace-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		C520DB59B30F4B83D967DB8E /* [Expo] Configure project */ = {
+		A52539832782B1A7D28EC577 /* [Expo] Configure project */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -335,7 +338,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				9F05E50820F3CC0BFBF467FF /* ExpoModulesProvider.swift in Sources */,
+				7618B750A1A4896737412370 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -344,11 +347,13 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 67CE73C46CBA8D37F3AF9380 /* Pods-PocketSpace.debug.xcconfig */;
+			baseConfigurationReference = 11AEDE883E2172530EB80623 /* Pods-PocketSpace.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = PocketSpace/PocketSpace.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = YT2B98FPV4;
 				ENABLE_BITCODE = NO;
@@ -381,11 +386,13 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 5EB2338ADEEA773804B10901 /* Pods-PocketSpace.release.xcconfig */;
+			baseConfigurationReference = 771961BF22125A552E93E624 /* Pods-PocketSpace.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = PocketSpace/PocketSpace.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = YT2B98FPV4;
 				INFOPLIST_FILE = PocketSpace/Info.plist;
@@ -457,19 +464,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"${PODS_ROOT}/ReactCommon",
-					"${PODS_ROOT}/ReactCommon/react/nativemodule/core",
-					"${PODS_ROOT}/React-runtimeexecutor",
-					"${PODS_ROOT}/React-runtimeexecutor/platform/ios",
-					"${PODS_ROOT}/ReactCommon-Samples",
-					"${PODS_ROOT}/ReactCommon-Samples/platform/ios",
-					"${PODS_ROOT}/React-Fabric/react/renderer/components/view/platform/cxx",
-					"${PODS_ROOT}/React-NativeModulesApple",
-					"${PODS_ROOT}/React-graphics",
-					"${PODS_ROOT}/React-graphics/react/renderer/graphics/platform/ios",
-				);
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					/usr/lib/swift,
@@ -526,19 +520,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"${PODS_ROOT}/ReactCommon",
-					"${PODS_ROOT}/ReactCommon/react/nativemodule/core",
-					"${PODS_ROOT}/React-runtimeexecutor",
-					"${PODS_ROOT}/React-runtimeexecutor/platform/ios",
-					"${PODS_ROOT}/ReactCommon-Samples",
-					"${PODS_ROOT}/ReactCommon-Samples/platform/ios",
-					"${PODS_ROOT}/React-Fabric/react/renderer/components/view/platform/cxx",
-					"${PODS_ROOT}/React-NativeModulesApple",
-					"${PODS_ROOT}/React-graphics",
-					"${PODS_ROOT}/React-graphics/react/renderer/graphics/platform/ios",
-				);
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					/usr/lib/swift,

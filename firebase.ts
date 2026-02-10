@@ -1,8 +1,13 @@
 // firebase.ts
 import { getApp, getApps, initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import {
+  getAuth,
+  getReactNativePersistence,
+  initializeAuth,
+} from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 
 const cfg = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -19,7 +24,17 @@ for (const [k, v] of Object.entries(cfg)) {
 }
 
 const app = getApps().length ? getApp() : initializeApp(cfg);
-const auth = getAuth(app);
+
+// React Native: AsyncStorage로 인증 상태 유지 (한 번만 initializeAuth, 재로드 시 getAuth)
+let auth: ReturnType<typeof getAuth>;
+try {
+  auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(ReactNativeAsyncStorage),
+  });
+} catch {
+  auth = getAuth(app);
+}
+
 const db = getFirestore(app);
 const storage = getStorage(app);
 

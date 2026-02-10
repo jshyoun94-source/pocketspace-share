@@ -1,4 +1,5 @@
 rules_version = '2';
+// 로그인: Firebase Auth 인증 사용자 (네이버/카카오/구글/Apple 등 모든 provider 동일 적용)
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -125,8 +126,12 @@ service cloud.firestore {
         && request.resource.data.authorId == request.auth.uid
         && request.resource.data.keys().hasAll(['authorId', 'authorName', 'content', 'location', 'createdAt', 'expiresAt']);
       
-      // 작성자만 수정/삭제 가능
-      allow update, delete: if signedIn()
+      // 작성자: 수정/삭제 가능. 다른 사용자: commentCount만 수정하는 경우 허용 (댓글 작성 시)
+      allow update: if signedIn() && (
+        resource.data.authorId == request.auth.uid
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentCount'])
+      );
+      allow delete: if signedIn()
         && resource.data.authorId == request.auth.uid;
       
       // 댓글

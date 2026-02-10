@@ -38,6 +38,8 @@ export default function GoogleLoginButton({ onSuccess }: Props) {
       scopes: ["profile", "email"],
       state,
       usePKCE: true,
+      // 로그아웃 후 다른 구글 계정으로 로그인하려면 계정 선택 화면이 나와야 함
+      extraParams: { prompt: "select_account" },
     },
     discovery
   );

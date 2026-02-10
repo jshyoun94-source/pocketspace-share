@@ -1,7 +1,8 @@
 import * as AuthSession from "expo-auth-session";
 import { Slot } from "expo-router";
 import React, { useEffect } from "react";
-import { SafeAreaView, StatusBar } from "react-native";
+import { StatusBar } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 
 export default function App() {

@@ -1,5 +1,5 @@
 import { collection, onSnapshot, query, where } from "firebase/firestore";
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "../firebase";
 
@@ -7,9 +7,15 @@ const UnreadChatCountContext = createContext<number>(0);
 
 export function UnreadChatCountProvider({ children }: { children: React.ReactNode }) {
   const [count, setCount] = useState(0);
+  const unsubListenersRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      // 로그아웃 시 기존 Firestore 리스너 먼저 해제 (permission-denied 방지)
+      if (unsubListenersRef.current) {
+        unsubListenersRef.current();
+        unsubListenersRef.current = null;
+      }
       if (!user) {
         setCount(0);
         return;
@@ -29,31 +35,46 @@ export function UnreadChatCountProvider({ children }: { children: React.ReactNod
         setCount(total);
       };
 
-      const unsubOwner = onSnapshot(ownerQ, (snap) => {
-        ownerUnread.clear();
-        snap.forEach((d) => {
-          const data = d.data();
-          ownerUnread.set(d.id, data.unreadByOwner ?? data.unreadCount ?? 0);
-        });
-        updateTotal();
-      });
+      const unsubOwner = onSnapshot(
+        ownerQ,
+        (snap) => {
+          ownerUnread.clear();
+          snap.forEach((d) => {
+            const data = d.data();
+            ownerUnread.set(d.id, data.unreadByOwner ?? data.unreadCount ?? 0);
+          });
+          updateTotal();
+        },
+        (err) => {
+          if (err?.code === "permission-denied") setCount(0);
+        }
+      );
 
-      const unsubCustomer = onSnapshot(customerQ, (snap) => {
-        customerUnread.clear();
-        snap.forEach((d) => {
-          const data = d.data();
-          customerUnread.set(d.id, data.unreadByCustomer ?? data.unreadCount ?? 0);
-        });
-        updateTotal();
-      });
+      const unsubCustomer = onSnapshot(
+        customerQ,
+        (snap) => {
+          customerUnread.clear();
+          snap.forEach((d) => {
+            const data = d.data();
+            customerUnread.set(d.id, data.unreadByCustomer ?? data.unreadCount ?? 0);
+          });
+          updateTotal();
+        },
+        (err) => {
+          if (err?.code === "permission-denied") setCount(0);
+        }
+      );
 
-      return () => {
+      unsubListenersRef.current = () => {
         unsubOwner();
         unsubCustomer();
       };
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubListenersRef.current?.();
+      unsubscribeAuth();
+    };
   }, []);
 
   return (

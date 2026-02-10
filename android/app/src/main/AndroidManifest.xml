@@ -35,11 +35,13 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="com.jshyoun94.pocketspace"/>
-        <data android:scheme="kakao2eb18b62f3d332b2cc370cf363cd94f9"/>
+        <data android:scheme="kakao729b6dde9f53eae792432cd484171657"/>
+        <data android:scheme="exp+pocketspace"/>
       </intent-filter>
       <intent-filter data-generated="true">
         <action android:name="android.intent.action.VIEW"/>
-        <data android:scheme="kakao2eb18b62f3d332b2cc370cf363cd94f9" android:host="oauth"/>
+        <data android:scheme="kakao729b6dde9f53eae792432cd484171657" android:host="oauth"/>
+        <data android:scheme="exp+pocketspace"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <category android:name="android.intent.category.DEFAULT"/>
       </intent-filter>
@@ -49,7 +51,7 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:host="oauth" android:scheme="kakao2eb18b62f3d332b2cc370cf363cd94f9"/>
+        <data android:host="oauth" android:scheme="kakao729b6dde9f53eae792432cd484171657"/>
       </intent-filter>
     </activity>
   </application>

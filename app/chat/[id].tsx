@@ -36,6 +36,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth, db } from "../../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { EMOJIS } from "../../constants/emojis";
+import MindSpaceBadge from "../../components/MindSpaceBadge";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { uploadBase64ToStorage } from "../../utils/uploadImageToStorage";
@@ -91,6 +92,7 @@ export default function ChatByIdScreen() {
   const [loading, setLoading] = useState(true);
   const [emojiPanelVisible, setEmojiPanelVisible] = useState(false);
   const [imageZoomUri, setImageZoomUri] = useState<string | null>(null);
+  const [otherUserMindSpace, setOtherUserMindSpace] = useState<number | null>(null);
 
   useEffect(() => {
     if (!chatId) {
@@ -165,6 +167,21 @@ export default function ChatByIdScreen() {
     );
     return () => unsub();
   }, [chatRoom?.id]);
+
+  // 상대방 마음공간 로드
+  useEffect(() => {
+    if (!chatRoom || !auth.currentUser) {
+      setOtherUserMindSpace(null);
+      return;
+    }
+    const otherId =
+      auth.currentUser.uid === chatRoom.ownerId
+        ? chatRoom.customerId
+        : chatRoom.ownerId;
+    getDoc(doc(db, "users", otherId))
+      .then((snap) => setOtherUserMindSpace(snap.data()?.mindSpace ?? null))
+      .catch(() => setOtherUserMindSpace(null));
+  }, [chatRoom?.ownerId, chatRoom?.customerId]);
 
   const sendMessage = async () => {
     if (!message.trim() || !chatRoom || !auth.currentUser) return;
@@ -289,7 +306,17 @@ export default function ChatByIdScreen() {
   if (loading || !chatRoom) {
     return (
       <>
-        <Stack.Screen options={{ title: "채팅" }} />
+        <Stack.Screen
+          options={{
+            title: "채팅",
+            headerBackVisible: false,
+            headerLeft: () => (
+              <Pressable onPress={() => router.back()} style={{ marginLeft: 0, padding: 4 }}>
+                <Ionicons name="chevron-back" size={28} color="#000" />
+              </Pressable>
+            ),
+          }}
+        />
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>채팅 불러오는 중...</Text>
         </View>
@@ -301,9 +328,21 @@ export default function ChatByIdScreen() {
     <>
       <Stack.Screen
         options={{
-          title: otherName || chatRoom.spaceTitle,
+          headerTitle: () => (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#111827" }} numberOfLines={1}>
+                {otherName || chatRoom.spaceTitle}
+              </Text>
+              <MindSpaceBadge mindSpace={otherUserMindSpace} size="small" />
+            </View>
+          ),
           headerStyle: { backgroundColor: "#fff" },
-          headerTitleStyle: { fontWeight: "700", fontSize: 18 },
+          headerBackVisible: false,
+          headerLeft: () => (
+            <Pressable onPress={() => router.back()} style={{ marginLeft: 0, padding: 4 }}>
+              <Ionicons name="chevron-back" size={28} color="#000" />
+            </Pressable>
+          ),
         }}
       />
       <KeyboardAvoidingView

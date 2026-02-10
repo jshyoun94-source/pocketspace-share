@@ -35,6 +35,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth, db } from "../../firebase";
+import { canPostToday } from "../../utils/checkDailyPostLimit";
 import * as FileSystem from "expo-file-system/legacy";
 import { uploadBase64ToStorage } from "../../utils/uploadImageToStorage";
 import * as ImagePicker from "expo-image-picker";
@@ -91,22 +92,43 @@ export default function CommunityScreen() {
     return unsubscribe;
   }, []);
 
-  // 현재 위치 가져오기
+  // 현재 위치 가져오기 (타임아웃·폴백으로 iPad 등에서 무한 로딩 방지)
+  const DEFAULT_LOCATION = { lat: 37.5665, lng: 126.978 }; // 서울 시청
   useEffect(() => {
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      if (!cancelled) {
+        setCurrentLocation((prev) => prev ?? DEFAULT_LOCATION);
+      }
+    }, 6000); // 6초 후에도 위치 못 받으면 기본값 사용
+
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
+        if (cancelled) return;
         if (status === "granted") {
           const loc = await Location.getCurrentPositionAsync({});
-          setCurrentLocation({
-            lat: loc.coords.latitude,
-            lng: loc.coords.longitude,
-          });
+          if (!cancelled) {
+            setCurrentLocation({
+              lat: loc.coords.latitude,
+              lng: loc.coords.longitude,
+            });
+          }
+        } else {
+          setCurrentLocation(DEFAULT_LOCATION);
         }
       } catch (e) {
         console.warn("위치 가져오기 실패:", e);
+        if (!cancelled) setCurrentLocation(DEFAULT_LOCATION);
+      } finally {
+        clearTimeout(timeout);
       }
     })();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
   }, []);
 
   // 거리 계산 (Haversine formula)
@@ -314,6 +336,13 @@ export default function CommunityScreen() {
       if (!userDoc.empty) {
         const userData = userDoc.docs[0].data();
         authorName = userData.nickname || userData.name || "익명";
+      }
+
+      const canPost = await canPostToday(db, "communityPosts", "authorId", currentUser.uid);
+      if (!canPost) {
+        Alert.alert("안내", "하루에 5건까지 등록이 가능합니다.");
+        setPosting(false);
+        return;
       }
 
       // 24시간 후 만료

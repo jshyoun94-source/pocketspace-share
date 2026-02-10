@@ -1,4 +1,5 @@
 rules_version = '2';
+// 인증: Firebase Auth 사용자 (네이버/카카오/구글/Apple 등 동일 적용)
 service firebase.storage {
   match /b/{bucket}/o {
     // spaces 폴더: 사용자별로 자신의 이미지만 업로드/읽기 가능

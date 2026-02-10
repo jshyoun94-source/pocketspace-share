@@ -4,6 +4,8 @@
   <dict>
     <key>CADisableMinimumFrameDurationOnPhone</key>
     <true/>
+    <key>CFBundleAllowMixedLocalizations</key>
+    <true/>
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
@@ -28,15 +30,21 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>com.jshyoun94.pocketspace</string>
-          <string>kakao2eb18b62f3d332b2cc370cf363cd94f9</string>
+          <string>kakao729b6dde9f53eae792432cd484171657</string>
           <string>com.jshyoun94.pocketspace</string>
+        </array>
+      </dict>
+      <dict>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>exp+pocketspace</string>
         </array>
       </dict>
     </array>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>KAKAO_APP_KEY</key>
-    <string>2eb18b62f3d332b2cc370cf363cd94f9</string>
+    <string>729b6dde9f53eae792432cd484171657</string>
     <key>LSApplicationQueriesSchemes</key>
     <array>
       <string>kakaokompassauth</string>

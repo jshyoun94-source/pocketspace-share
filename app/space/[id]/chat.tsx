@@ -165,25 +165,16 @@ export default function ChatScreen() {
       try {
         setLoading(true);
 
-        // 1) 공간 정보
+        const currentUserId: string = auth.currentUser!.uid;
+        const chatsRef = collection(db, "chats");
+
+        // 1) 공간 정보 (없으면 기존 채팅만 조회해 계속 대화 가능하도록)
         const spaceRef = doc(db, "spaces", String(spaceId));
         const spaceDoc = await getDoc(spaceRef);
-
-        if (!spaceDoc.exists()) {
-          Alert.alert("오류", "공간을 찾을 수 없습니다.");
-          router.back();
-          return;
-        }
-
+        const spaceExists = spaceDoc.exists();
         const space = spaceDoc.data();
-        if (cancelled) return;
-        setSpaceData(space);
 
-        const ownerId: string = space.ownerId;
-        const currentUserId: string = auth.currentUser!.uid;
-
-        // 채팅방 찾기: 본인이 참여한 채팅만 쿼리 (권한 규칙: isChatMember만 get 가능)
-        const chatsRef = collection(db, "chats");
+        // 채팅방 찾기: 공간 존재 여부와 관계없이 먼저 기존 채팅 조회
         const [ownerChatsSnap, customerChatsSnap] = await Promise.all([
           getDocs(
             query(
@@ -211,88 +202,128 @@ export default function ChatScreen() {
         ownerChatsSnap.forEach(checkAndSet);
         if (!existingChatRoom) customerChatsSnap.forEach(checkAndSet);
 
-        let finalChatId: string;
-
         if (existingChatRoom) {
           if (cancelled) return;
-          console.log("✅ 기존 채팅방 사용:", existingChatRoom.id);
+          const finalChatId = existingChatRoom.id;
+          console.log("✅ 기존 채팅방 사용:", finalChatId);
           setChatRoom(existingChatRoom as ChatRoom);
-          finalChatId = existingChatRoom.id;
-        } else {
-          if (ownerId === currentUserId) {
-            Alert.alert("알림", "자신의 공간에는 물건을 맡길 수 없습니다.");
-            router.back();
-            return;
+          if (spaceExists && space) {
+            setSpaceData(space);
+          } else {
+            setSpaceData({
+              title: existingChatRoom.spaceTitle || "공간 (삭제됨)",
+              address: "해당 공간은 삭제되었습니다. 대화는 이어갈 수 있습니다.",
+              images: existingChatRoom.spaceImages || [],
+            });
           }
-
-          const customerId = currentUserId;
-          const ownerDoc = await getDoc(doc(db, "users", ownerId));
-          const customerDoc = await getDoc(doc(db, "users", currentUserId));
-          const ownerName =
-            ownerDoc.data()?.nickname || ownerDoc.data()?.name || "사용자";
-          const customerName =
-            customerDoc.data()?.nickname || customerDoc.data()?.name || "사용자";
-
-          const newChatRoomData = {
-            spaceId: String(spaceId),
-            spaceTitle: space.title || "공간",
-            spaceAddress: space.address || "",
-            spaceImages: space.images || [],
-            ownerId,
-            ownerName,
-            customerId: currentUserId,
-            customerName,
-            leftByOwner: false,
-            leftByCustomer: false,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            lastMessageTime: serverTimestamp(),
-          };
-
-          const chatRef = await addDoc(collection(db, "chats"), newChatRoomData);
-          finalChatId = chatRef.id;
-          console.log("✅ 채팅방 생성 완료:", finalChatId, { ownerId, customerId: currentUserId });
-
+          const messagesQuery = query(
+            collection(db, "chats", finalChatId, "messages"),
+            orderBy("createdAt", "asc")
+          );
+          unsubscribeMessages = onSnapshot(
+            messagesQuery,
+            (snapshot) => {
+              const msgs: Message[] = [];
+              snapshot.forEach((d) => {
+                msgs.push({ id: d.id, ...(d.data() as any) } as Message);
+              });
+              setMessages(msgs);
+            },
+            (err) => {
+              console.warn("메시지 구독 오류:", err?.code, err?.message);
+              if (err?.code === "permission-denied") setMessages([]);
+            }
+          );
           if (cancelled) return;
-          setChatRoom({ id: finalChatId, ...newChatRoomData } as ChatRoom);
+          setLoading(false);
+          return;
+        }
 
-          await setDoc(doc(db, "chats", finalChatId, "messages", "welcome"), {
-            text: `${customerName}님이 채팅을 시작했습니다.`,
-            senderId: currentUserId,
-            type: "system",
-            createdAt: serverTimestamp(),
-          });
+        if (!spaceExists || !space) {
+          Alert.alert("오류", "공간을 찾을 수 없습니다.");
+          router.back();
+          return;
+        }
 
-          const dayLabels: Record<string, string> = {
-            mon: "월", tue: "화", wed: "수", thu: "목", fri: "금", sat: "토", sun: "일",
-          };
-          const dayOrder = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-          const scheduleParts: string[] = [];
-          const spaceSchedules = space.schedules as Array<{ days?: string[]; time?: { start?: string; end?: string } }> | undefined;
-          if (spaceSchedules && spaceSchedules.length > 0) {
-            for (const dayKey of dayOrder) {
-              const block = spaceSchedules.find(
-                (b) => b.days && b.days.map((d: string) => d.toLowerCase()).includes(dayKey)
+        if (cancelled) return;
+        setSpaceData(space);
+
+        const ownerId: string = space.ownerId;
+        let finalChatId: string;
+
+        if (ownerId === currentUserId) {
+          Alert.alert("알림", "자신의 공간에는 물건을 맡길 수 없습니다.");
+          router.back();
+          return;
+        }
+
+        const customerId = currentUserId;
+        const ownerDoc = await getDoc(doc(db, "users", ownerId));
+        const customerDoc = await getDoc(doc(db, "users", currentUserId));
+        const ownerName =
+          ownerDoc.data()?.nickname || ownerDoc.data()?.name || "사용자";
+        const customerName =
+          customerDoc.data()?.nickname || customerDoc.data()?.name || "사용자";
+
+        const newChatRoomData = {
+          spaceId: String(spaceId),
+          spaceTitle: space.title || "공간",
+          spaceAddress: space.address || "",
+          spaceImages: space.images || [],
+          ownerId,
+          ownerName,
+          customerId: currentUserId,
+          customerName,
+          leftByOwner: false,
+          leftByCustomer: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          lastMessageTime: serverTimestamp(),
+        };
+
+        const chatRef = await addDoc(collection(db, "chats"), newChatRoomData);
+        finalChatId = chatRef.id;
+        console.log("✅ 채팅방 생성 완료:", finalChatId, { ownerId, customerId: currentUserId });
+
+        if (cancelled) return;
+        setChatRoom({ id: finalChatId, ...newChatRoomData } as ChatRoom);
+
+        await setDoc(doc(db, "chats", finalChatId, "messages", "welcome"), {
+          text: `${customerName}님이 채팅을 시작했습니다.`,
+          senderId: currentUserId,
+          type: "system",
+          createdAt: serverTimestamp(),
+        });
+
+        const dayLabels: Record<string, string> = {
+          mon: "월", tue: "화", wed: "수", thu: "목", fri: "금", sat: "토", sun: "일",
+        };
+        const dayOrder = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+        const scheduleParts: string[] = [];
+        const spaceSchedules = space.schedules as Array<{ days?: string[]; time?: { start?: string; end?: string } }> | undefined;
+        if (spaceSchedules && spaceSchedules.length > 0) {
+          for (const dayKey of dayOrder) {
+            const block = spaceSchedules.find(
+              (b) => b.days && b.days.map((d: string) => d.toLowerCase()).includes(dayKey)
+            );
+            const label = dayLabels[dayKey] ?? dayKey;
+            if (block?.time) {
+              scheduleParts.push(
+                `${label}: ${block.time.start ?? "09"}~${block.time.end ?? "18"}시`
               );
-              const label = dayLabels[dayKey] ?? dayKey;
-              if (block?.time) {
-                scheduleParts.push(
-                  `${label}: ${block.time.start ?? "09"}~${block.time.end ?? "18"}시`
-                );
-              }
             }
           }
-          const scheduleText =
-            scheduleParts.length > 0
-              ? `안녕하세요, 보관가능시간은 ${scheduleParts.join(" ")} 입니다.\n자세한 일정은 문의 부탁드립니다.`
-              : "안녕하세요. 자세한 보관 일정은 문의 부탁드립니다.";
-          await addDoc(collection(db, "chats", finalChatId, "messages"), {
-            text: scheduleText,
-            senderId: "system",
-            type: "system",
-            createdAt: serverTimestamp(),
-          });
         }
+        const scheduleText =
+          scheduleParts.length > 0
+            ? `안녕하세요, 보관가능시간은 ${scheduleParts.join(" ")} 입니다.\n자세한 일정은 문의 부탁드립니다.`
+            : "안녕하세요. 자세한 보관 일정은 문의 부탁드립니다.";
+        await addDoc(collection(db, "chats", finalChatId, "messages"), {
+          text: scheduleText,
+          senderId: "system",
+          type: "system",
+          createdAt: serverTimestamp(),
+        });
 
         // 5) messages 구독 (chat 생성/존재 확인 후에만 구독)
         const messagesQuery = query(
@@ -955,7 +986,22 @@ export default function ChatScreen() {
           {
             text: "나가기",
             style: "destructive",
-            onPress: () => router.back(),
+            onPress: async () => {
+              if (!chatRoom?.id || !auth.currentUser) {
+                router.back();
+                return;
+              }
+              const isOwner = auth.currentUser.uid === chatRoom.ownerId;
+              try {
+                await updateDoc(doc(db, "chats", chatRoom.id), {
+                  ...(isOwner ? { leftByOwner: true } : { leftByCustomer: true }),
+                  updatedAt: serverTimestamp(),
+                });
+              } catch (e) {
+                console.warn("채팅방 나가기 업데이트 실패:", e);
+              }
+              router.back();
+            },
           },
         ]);
         break;

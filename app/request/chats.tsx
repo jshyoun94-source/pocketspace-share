@@ -72,9 +72,11 @@ export default function RequestChatsScreen() {
         const pushIfRequest = (d: { id: string; data: () => Record<string, unknown> }) => {
           const data = d.data();
           if (!data.requestId) return;
+          const isOwner = data.ownerId === currentUser.uid;
+          if (isOwner && data.leftByOwner === true) return;
+          if (!isOwner && data.leftByCustomer === true) return;
           if (seen.has(d.id)) return;
           seen.add(d.id);
-          const isOwner = data.ownerId === currentUser.uid;
           list.push({
             id: d.id,
             spaceTitle: (data.spaceTitle as string) || "동네부탁",
@@ -133,7 +135,7 @@ export default function RequestChatsScreen() {
           snap.forEach((d) => {
             const data = d.data();
             if (!data.requestId) return;
-            const isOwner = true;
+            if (data.leftByOwner === true) return;
             ownerList.push({
               id: d.id,
               spaceTitle: data.spaceTitle || "동네부탁",
@@ -156,6 +158,7 @@ export default function RequestChatsScreen() {
           snap.forEach((d) => {
             const data = d.data();
             if (!data.requestId) return;
+            if (data.leftByCustomer === true) return;
             customerList.push({
               id: d.id,
               spaceTitle: data.spaceTitle || "동네부탁",
@@ -196,8 +199,18 @@ export default function RequestChatsScreen() {
   if (!currentUser) {
     return (
       <>
-        <Stack.Screen options={{ title: "동네부탁 채팅" }} />
-        <View style={[styles.container, { paddingTop: insets.top + 20 }]}>
+        <Stack.Screen
+          options={{
+            title: "동네부탁",
+            headerBackVisible: false,
+            headerLeft: () => (
+              <Pressable onPress={() => router.back()} style={{ marginLeft: 0, padding: 4 }}>
+                <Ionicons name="chevron-back" size={28} color="#000" />
+              </Pressable>
+            ),
+          }}
+        />
+        <View style={styles.container}>
           <Text style={styles.emptyText}>로그인이 필요합니다</Text>
         </View>
       </>
@@ -208,12 +221,18 @@ export default function RequestChatsScreen() {
     <>
       <Stack.Screen
         options={{
-          title: "동네부탁 채팅",
+          title: "동네부탁",
           headerStyle: { backgroundColor: "#fff" },
           headerTitleStyle: { fontWeight: "700", fontSize: 18 },
+          headerBackVisible: false,
+          headerLeft: () => (
+            <Pressable onPress={() => router.back()} style={{ marginLeft: 0, padding: 4 }}>
+              <Ionicons name="chevron-back" size={28} color="#000" />
+            </Pressable>
+          ),
         }}
       />
-      <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
+      <View style={styles.container}>
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" />
@@ -254,7 +273,7 @@ export default function RequestChatsScreen() {
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <Ionicons name="chatbubbles-outline" size={64} color="#D1D5DB" />
-                <Text style={styles.emptyText}>동네부탁 채팅이 없습니다</Text>
+                <Text style={styles.emptyText}>동네부탁이 없습니다</Text>
                 <Text style={styles.emptySubtext}>
                   부탁을 수락하면 채팅이 시작됩니다
                 </Text>
@@ -298,7 +317,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   unreadBadgeText: { fontSize: 12, fontWeight: "700", color: "#fff" },
-  emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", paddingTop: 80 },
+  emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", paddingTop: 24 },
   emptyText: { fontSize: 16, color: "#6B7280", marginTop: 12 },
   emptySubtext: { fontSize: 14, color: "#9CA3AF", marginTop: 4 },
 });

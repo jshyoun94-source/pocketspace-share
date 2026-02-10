@@ -28,6 +28,7 @@ import { v4 as uuidv4 } from "uuid";
 // ✅ 구글 기반 AddressPicker
 import AddressPicker from "../../components/AddressPicker";
 import { app, auth, db } from "../../firebase";
+import { canPostToday } from "../../utils/checkDailyPostLimit";
 
 const storage = getStorage(app);
 
@@ -212,12 +213,13 @@ export default function NewSpace() {
           console.log("Storage 버킷:", storage.app.options.storageBucket);
           console.log("현재 사용자 UID:", auth.currentUser?.uid);
           
-          for (const img of images) {
+          for (let i = 0; i < images.length; i++) {
+            const img = images[i];
             try {
               const uri = typeof img === "string" ? img : img.uri;
               console.log("이미지 업로드 시도:", uri);
 
-              // ImagePicker base64 우선, 없으면 FileSystem (iOS ph:// 대응)
+              // ImagePicker base64 우선, 없으면 FileSystem (iOS ph:// 및 시뮬레이터 file:// 대응)
               let base64: string | null =
                 typeof img === "object" && img.base64 ? img.base64 : null;
               if (!base64) {
@@ -228,9 +230,21 @@ export default function NewSpace() {
                 } catch {
                   base64 = null;
                 }
+                // 시뮬레이터 등에서 직접 읽기 실패 시 캐시로 복사 후 재시도
+                if (!base64 && uri.startsWith("file://")) {
+                  try {
+                    const dest = `${FileSystem.cacheDirectory}upload_${Date.now()}_${i}.jpg`;
+                    await FileSystem.copyAsync({ from: uri, to: dest });
+                    base64 = await FileSystem.readAsStringAsync(dest, {
+                      encoding: "base64",
+                    });
+                  } catch {
+                    base64 = null;
+                  }
+                }
               }
               if (!base64 || base64.length === 0) {
-                throw new Error("이미지 데이터를 읽을 수 없습니다.");
+                throw new Error("이미지 데이터를 읽을 수 없습니다. 다른 사진을 선택하거나 카메라로 촬영해 주세요.");
               }
 
               const fileName = `${Date.now()}_${uuidv4()}.jpg`;
@@ -255,6 +269,12 @@ export default function NewSpace() {
         }
       }
       
+      const canPost = await canPostToday(db, "spaces", "ownerId", auth.currentUser.uid);
+      if (!canPost) {
+        Alert.alert("안내", "하루에 5건까지 등록이 가능합니다.");
+        return;
+      }
+
       // Firebase Firestore에 저장
       const spaceData = {
         title: addressTitle,

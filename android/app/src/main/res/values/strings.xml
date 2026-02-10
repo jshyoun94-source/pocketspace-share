@@ -2,5 +2,5 @@
   <string name="app_name">PocketSpace</string>
   <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
   <string name="expo_splash_screen_status_bar_translucent" translatable="false">false</string>
-  <string name="kakao_app_key">2eb18b62f3d332b2cc370cf363cd94f9</string>
+  <string name="kakao_app_key">729b6dde9f53eae792432cd484171657</string>
 </resources>

@@ -1,8 +1,10 @@
 // functions/src/index.ts
+import * as crypto from "crypto";
 import cors from "cors";
 import express from "express";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
+import * as jwt from "jsonwebtoken";
 import {
   onDocumentCreated,
   onDocumentDeleted,
@@ -207,6 +209,96 @@ app.post("/auth/kakao", async (req, res) => {
   } catch (e: any) {
     console.error("KAKAO auth error:", e);
     return res.status(500).json({ error: e?.message ?? "server error" });
+  }
+});
+
+/** Apple ID 토큰 검증용 (JWKS → 공개키) */
+const APPLE_BUNDLE_ID = "com.jshyoun94.pocketspace";
+const APPLE_KEYS_URL = "https://appleid.apple.com/auth/keys";
+let appleKeysCache: { keys: any[]; at: number } | null = null;
+const APPLE_KEYS_CACHE_MS = 60 * 60 * 1000;
+
+async function getAppleSigningKey(kid: string): Promise<crypto.KeyObject> {
+  if (
+    !appleKeysCache ||
+    Date.now() - appleKeysCache.at > APPLE_KEYS_CACHE_MS
+  ) {
+    const res = await fetch(APPLE_KEYS_URL);
+    const data = await res.json();
+    appleKeysCache = { keys: data.keys, at: Date.now() };
+  }
+  const jwk = appleKeysCache.keys.find((k: any) => k.kid === kid);
+  if (!jwk) throw new Error("Apple signing key not found for kid");
+  return crypto.createPublicKey({
+    key: jwk,
+    format: "jwk",
+  });
+}
+
+/**
+ * POST /auth/apple (nonce 문제 우회: 백엔드에서 Apple JWT 검증 후 Custom Token 발급)
+ * body: { identityToken: string, email?: string | null, fullName?: { givenName?, familyName? } | null }
+ */
+app.post("/auth/apple", async (req, res) => {
+  try {
+    const { identityToken, email, fullName } = req.body || {};
+    if (!identityToken) {
+      return res.status(400).json({ error: "identityToken required" });
+    }
+
+    const decoded = jwt.decode(identityToken, { complete: true }) as any;
+    if (!decoded?.header?.kid || !decoded?.payload) {
+      return res.status(401).json({ error: "Invalid Apple token" });
+    }
+    const key = await getAppleSigningKey(decoded.header.kid);
+    const payload = jwt.verify(identityToken, key, {
+      algorithms: ["RS256"],
+      issuer: "https://appleid.apple.com",
+      audience: APPLE_BUNDLE_ID,
+    }) as { sub: string; email?: string };
+
+    const appleSub = payload.sub;
+    const uid = `apple:${appleSub}`;
+    const emailVal = email ?? payload.email ?? null;
+    const displayName =
+      fullName?.givenName || fullName?.familyName
+        ? [fullName.givenName, fullName.familyName].filter(Boolean).join(" ")
+        : undefined;
+
+    await admin
+      .auth()
+      .updateUser(uid, {
+        email: emailVal || undefined,
+        displayName: displayName || undefined,
+      })
+      .catch(async (err: any) => {
+        if (err.code === "auth/user-not-found") {
+          await admin.auth().createUser({
+            uid,
+            email: emailVal || undefined,
+            displayName: displayName || undefined,
+          });
+        } else {
+          throw err;
+        }
+      });
+
+    const customToken = await admin.auth().createCustomToken(uid, {
+      provider: "apple",
+      email: emailVal,
+    });
+
+    return res.json({
+      customToken,
+      profile: {
+        id: uid,
+        email: emailVal,
+        name: displayName ?? null,
+      },
+    });
+  } catch (e: any) {
+    console.error("APPLE auth error:", e);
+    return res.status(500).json({ error: e?.message ?? "Apple token invalid" });
   }
 });
 
@@ -447,7 +539,7 @@ app.post("/upload-image", async (req, res) => {
     const decoded = await admin.auth().verifyIdToken(idToken);
     const uid = decoded.uid;
 
-    const { base64, path, contentType = "image/jpeg" } = req.body || {};
+    const { base64, path, contentType = "image/jpeg", storageBucket: clientBucket } = req.body || {};
     if (!base64 || !path) {
       return res.status(400).json({ error: "base64, path가 필요합니다." });
     }
@@ -464,18 +556,56 @@ app.post("/upload-image", async (req, res) => {
       return res.status(403).json({ error: "업로드 경로가 허용되지 않습니다." });
     }
 
-    const bucket = admin.storage().bucket();
-    const file = bucket.file(path);
+    // 클라이언트와 동일한 버킷 사용. .appspot.com이 없으면 .firebasestorage.app 시도
     const buffer = Buffer.from(base64, "base64");
     if (buffer.length === 0) {
       return res.status(400).json({ error: "base64 디코딩 결과가 비어있습니다. 요청 크기 제한을 확인하세요." });
     }
-    await file.save(buffer, {
-      contentType,
-      metadata: { cacheControl: "public, max-age=31536000" },
-    });
 
-    return res.json({ path });
+    const projectId = process.env.GCLOUD_PROJECT ?? "";
+    const alt = (name: string) =>
+      name.endsWith(".appspot.com")
+        ? `${name.replace(/\.appspot\.com$/, "")}.firebasestorage.app`
+        : name.endsWith(".firebasestorage.app")
+          ? `${name.replace(/\.firebasestorage\.app$/, "")}.appspot.com`
+          : null;
+
+    let bucketName: string | undefined = clientBucket;
+    if (!bucketName) {
+      try {
+        const fc = process.env.FIREBASE_CONFIG;
+        if (fc) bucketName = JSON.parse(fc).storageBucket;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!bucketName) bucketName = `${projectId}.appspot.com`;
+
+    let lastErr: any;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const bucket = admin.storage().bucket(bucketName);
+        const file = bucket.file(path);
+        await file.save(buffer, {
+          contentType,
+          metadata: { cacheControl: "public, max-age=31536000" },
+        });
+        return res.json({ path, bucket: bucketName });
+      } catch (e: any) {
+        lastErr = e;
+        const msg = String(e?.message ?? e?.errors?.[0]?.message ?? "");
+        const isBucketNotFound =
+          e?.code === 404 || msg.includes("bucket does not exist") || msg.includes("does not exist");
+        const nextBucket = alt(bucketName!);
+        if (isBucketNotFound && nextBucket) {
+          bucketName = nextBucket;
+          continue;
+        }
+        throw e;
+      }
+    }
+    console.error("upload-image error:", lastErr);
+    return res.status(500).json({ error: lastErr?.message ?? "업로드 실패" });
   } catch (e: any) {
     console.error("upload-image error:", e);
     return res.status(500).json({ error: e?.message ?? "업로드 실패" });

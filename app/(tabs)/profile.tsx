@@ -11,6 +11,7 @@ import {
   doc,
   getDoc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
   Timestamp,
 } from "firebase/firestore";
@@ -31,7 +32,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth, db } from "../../firebase";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { deleteUser, onAuthStateChanged, signOut } from "firebase/auth";
 import useKakaoLogin from "../../hooks/useKakaoLogin";
 import MindSpaceBadge from "../../components/MindSpaceBadge";
 import { uploadBase64ToStorage } from "../../utils/uploadImageToStorage";
@@ -249,6 +250,41 @@ export default function ProfileScreen() {
         },
       },
     ]);
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "회원 탈퇴",
+      "탈퇴 시 계정 및 보관된 데이터가 삭제되며 복구할 수 없습니다. 정말 탈퇴하시겠습니까?",
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "탈퇴하기",
+          style: "destructive",
+          onPress: async () => {
+            const uid = auth.currentUser?.uid;
+            if (!uid) {
+              router.replace("/(auth)/login");
+              return;
+            }
+            try {
+              const userRef = doc(db, "users", uid);
+              await deleteDoc(userRef);
+              const user = auth.currentUser;
+              if (user) await deleteUser(user);
+              router.replace("/(auth)/login");
+            } catch (e: any) {
+              console.error("회원 탈퇴 실패:", e);
+              const msg =
+                e?.code === "auth/requires-recent-login"
+                  ? "보안을 위해 다시 로그인한 뒤 탈퇴를 시도해 주세요."
+                  : e?.message || "탈퇴 처리에 실패했습니다.";
+              Alert.alert("탈퇴 실패", msg);
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (!currentUser) {
@@ -469,6 +505,13 @@ export default function ProfileScreen() {
               </Pressable>
               <Pressable
                 style={styles.menuItem}
+                onPress={() => router.push("/my-requests")}
+              >
+                <Text style={styles.menuItemText}>내 부탁 관리</Text>
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </Pressable>
+              <Pressable
+                style={styles.menuItem}
                 onPress={() => setNicknameModalVisible(true)}
               >
                 <Text style={styles.menuItemText}>닉네임 변경</Text>
@@ -586,9 +629,32 @@ export default function ProfileScreen() {
                 <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
               </Pressable>
 
+              <Pressable
+                style={[styles.menuItem, { marginTop: 16 }]}
+                onPress={handleDeleteAccount}
+              >
+                <Text style={[styles.menuItemText, { color: "#DC2626" }]}>
+                  회원 탈퇴
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color="#DC2626" />
+              </Pressable>
+
               <Pressable style={styles.logoutButton} onPress={handleLogout}>
                 <Text style={styles.logoutButtonText}>로그아웃</Text>
               </Pressable>
+
+              {__DEV__ && (
+                <Text
+                  style={{
+                    marginTop: 24,
+                    fontSize: 11,
+                    color: "#9CA3AF",
+                    textAlign: "center",
+                  }}
+                >
+                  개발 빌드 · Apple 로그인 · 회원탈퇴 · 삭제된 공간 채팅 포함
+                </Text>
+              )}
             </View>
           )}
         </ScrollView>
