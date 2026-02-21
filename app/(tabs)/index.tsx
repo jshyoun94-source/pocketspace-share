@@ -669,7 +669,7 @@ export default function HomeMap() {
           position: "absolute",
           left: 12,
           right: 12,
-          bottom: Platform.OS === "ios" ? 22 : 18, // 한 번 더 올림
+          bottom: Platform.OS === "ios" ? 22 : 18, // 원래 위치 유지
           zIndex: 1000, // 탭바를 덮도록 매우 높은 zIndex
         }}
       >

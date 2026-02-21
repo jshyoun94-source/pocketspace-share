@@ -54,6 +54,19 @@ function RootLayoutNav() {
       <UnreadChatCountProvider>
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="notification-settings"
+            options={{
+              title: "알림 설정",
+              headerTintColor: "#111827",
+              headerTitleStyle: { color: "#111827", fontWeight: "700" },
+              headerBackTitleVisible: false,
+              headerBackButtonDisplayMode: "minimal",
+              headerTitleAlign: "center",
+              headerLeftContainerStyle: { paddingLeft: 12 },
+              headerStyle: { backgroundColor: "#fff" },
+            }}
+          />
           <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
         </Stack>
       </UnreadChatCountProvider>

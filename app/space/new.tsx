@@ -464,7 +464,7 @@ export default function NewSpace() {
             
             <TextInput
               style={[styles.input, { minHeight: 80, textAlignVertical: "top", paddingTop: 10 }]}
-              placeholder="보관 가능 물품이나 주의사항 등을 적어주세요."
+              placeholder="예) 보관 가능 물품과 주의사항을 적어주세요. 냉장/냉동 가능 여부, 취급 불가 물품, 출입 가능 시간 등 안내사항을 함께 적어주시면 좋아요."
               multiline
               value={desc}
               onChangeText={setDesc}

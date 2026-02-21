@@ -605,9 +605,7 @@ export default function ProfileScreen() {
             <View style={styles.settingsSection}>
               <Pressable
                 style={styles.menuItem}
-                onPress={() => {
-                  Alert.alert("준비중", "알림 설정 기능은 준비중입니다.");
-                }}
+                onPress={() => router.push("/notification-settings")}
               >
                 <Text style={styles.menuItemText}>알림 설정</Text>
                 <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />

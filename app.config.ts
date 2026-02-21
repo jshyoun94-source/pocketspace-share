@@ -53,6 +53,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       supportsTablet: true,
       bundleIdentifier: "com.jshyoun94.pocketspace",
       infoPlist: {
+        UIBackgroundModes: ["remote-notification"],
         NSLocationWhenInUseUsageDescription:
           "지도를 표시하고 내 주변 공간을 찾기 위해 위치 접근 권한이 필요합니다.",
         NSPhotoLibraryUsageDescription:
@@ -85,6 +86,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
       permissions: [
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.CAMERA",
@@ -105,6 +107,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
     plugins: [
       "expo-router",
+      "expo-notifications",
       "expo-location",
       "expo-image-picker",
       [
@@ -131,6 +134,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
 
     extra: {
+      eas: {
+        projectId: "ad0e5a5a-0690-42db-b65a-bb78584f331c",
+      },
       EXPO_PUBLIC_GOOGLE_PLACES_API_KEY:
         process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY,
       EXPO_PUBLIC_NAVER_CLIENT_ID: process.env.EXPO_PUBLIC_NAVER_CLIENT_ID,

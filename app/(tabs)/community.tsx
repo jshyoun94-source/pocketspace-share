@@ -548,7 +548,7 @@ export default function CommunityScreen() {
           }}
           style={{
             position: "absolute",
-            bottom: Platform.OS === "ios" ? 152 : 128,
+            bottom: Platform.OS === "ios" ? 22 : 18,
             alignSelf: "center",
             backgroundColor: "#2477ff",
             borderRadius: 26,

@@ -676,7 +676,7 @@ export default function RequestScreen() {
         <View
           style={{
             position: "absolute",
-            bottom: Platform.OS === "ios" ? 152 : 128,
+            bottom: Platform.OS === "ios" ? 22 : 18,
             left: 0,
             right: 0,
             flexDirection: "row",

@@ -838,6 +838,235 @@ export const api = functions.https.onRequest(
 
 const db = admin.firestore();
 
+type ExpoPushPayload = {
+  to: string;
+  title: string;
+  body: string;
+  sound?: "default";
+  badge?: number;
+  data?: Record<string, unknown>;
+};
+
+type NotificationSettings = {
+  chatEnabled: boolean;
+  statusEnabled: boolean;
+};
+
+function getNotificationSettings(userData: any): NotificationSettings {
+  const raw = userData?.notificationSettings ?? {};
+  return {
+    chatEnabled: typeof raw.chatEnabled === "boolean" ? raw.chatEnabled : true,
+    statusEnabled: typeof raw.statusEnabled === "boolean" ? raw.statusEnabled : true,
+  };
+}
+
+function normalizeExpoTokens(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((v): v is string =>
+    typeof v === "string" &&
+    (v.startsWith("ExpoPushToken[") || v.startsWith("ExponentPushToken["))
+  );
+}
+
+async function sendExpoPushMessages(messages: ExpoPushPayload[]): Promise<string[]> {
+  if (messages.length === 0) return [];
+  const res = await fetch("https://exp.host/--/api/v2/push/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(messages),
+  });
+  const json: any = await res.json().catch(() => ({}));
+  const invalid: string[] = [];
+  const ticketList = Array.isArray(json?.data) ? json.data : [];
+  ticketList.forEach((ticket: any, idx: number) => {
+    if (ticket?.status !== "error") return;
+    const err = String(ticket?.details?.error ?? ticket?.message ?? "");
+    if (err.includes("DeviceNotRegistered")) {
+      const token = messages[idx]?.to;
+      if (token) invalid.push(token);
+    }
+  });
+  return invalid;
+}
+
+async function notifyUserByUid(
+  uid: string,
+  title: string,
+  body: string,
+  data: Record<string, unknown>,
+  badge = 1,
+  category: "chat" | "status" = "chat"
+): Promise<void> {
+  const userSnap = await db.doc(`users/${uid}`).get();
+  if (!userSnap.exists) return;
+  const userData = userSnap.data();
+  const prefs = getNotificationSettings(userData);
+  if (category === "chat" && !prefs.chatEnabled) return;
+  if (category === "status" && !prefs.statusEnabled) return;
+
+  const tokens = normalizeExpoTokens(userData?.expoPushTokens);
+  if (tokens.length === 0) return;
+
+  const payloads: ExpoPushPayload[] = tokens.map((to) => ({
+    to,
+    title,
+    body,
+    sound: "default",
+    badge,
+    data,
+  }));
+
+  const invalid = await sendExpoPushMessages(payloads);
+  if (invalid.length > 0) {
+    await db.doc(`users/${uid}`).set(
+      {
+        expoPushTokens: admin.firestore.FieldValue.arrayRemove(...invalid),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+}
+
+/**
+ * 채팅방 생성 시 공간 소유자(owner)에게 새 문의 알림 발송
+ */
+export const onChatCreated = onDocumentCreated(
+  {
+    document: "chats/{chatId}",
+    region: "asia-northeast3",
+  },
+  async (event) => {
+    const chatId = event.params.chatId as string;
+    const chat = event.data?.data() as any;
+    if (!chat?.ownerId || !chat?.customerName) return;
+    try {
+      await notifyUserByUid(
+        chat.ownerId,
+        "새 보관 문의가 도착했어요",
+        `${chat.customerName}님이 채팅을 시작했습니다.`,
+        { type: "chat_created", chatId },
+        1,
+        "chat"
+      );
+    } catch (e) {
+      console.error("onChatCreated notification failed:", e);
+    }
+  }
+);
+
+/**
+ * 새 메시지 생성 시 상대방에게 푸시 알림 발송
+ */
+export const onChatMessageCreated = onDocumentCreated(
+  {
+    document: "chats/{chatId}/messages/{messageId}",
+    region: "asia-northeast3",
+  },
+  async (event) => {
+    const chatId = event.params.chatId as string;
+    const msg = event.data?.data() as any;
+    if (!msg) return;
+
+    const senderId = msg.senderId as string | undefined;
+    if (!senderId || senderId === "system") return;
+
+    const chatSnap = await db.doc(`chats/${chatId}`).get();
+    if (!chatSnap.exists) return;
+    const chat = chatSnap.data() as any;
+
+    let receiverId: string | null = null;
+    if (senderId === chat.ownerId) receiverId = chat.customerId ?? null;
+    else if (senderId === chat.customerId) receiverId = chat.ownerId ?? null;
+    if (!receiverId) return;
+
+    const senderName =
+      (msg.senderName as string | undefined) ||
+      (senderId === chat.ownerId ? chat.ownerName : chat.customerName) ||
+      "상대방";
+
+    const type = String(msg.type ?? "text");
+    const body =
+      type === "image"
+        ? `${senderName}님이 사진을 보냈어요.`
+        : type === "sticker"
+          ? `${senderName}님이 스티커를 보냈어요.`
+          : `${senderName}: ${String(msg.text ?? "새 메시지")}`;
+
+    try {
+      await notifyUserByUid(receiverId, "새 채팅 메시지", body, {
+        type: "chat_message",
+        chatId,
+      }, 1, "chat");
+    } catch (e) {
+      console.error("onChatMessageCreated notification failed:", e);
+    }
+  }
+);
+
+/**
+ * 동네부탁 상태 변경 시 상태 알림 발송
+ */
+export const onNeighborhoodRequestUpdated = onDocumentUpdated(
+  {
+    document: "neighborhoodRequests/{requestId}",
+    region: "asia-northeast3",
+  },
+  async (event) => {
+    const before = event.data?.before?.data() as any;
+    const after = event.data?.after?.data() as any;
+    if (!before || !after) return;
+
+    const beforeStatus = String(before.status ?? "");
+    const afterStatus = String(after.status ?? "");
+    if (!afterStatus || beforeStatus === afterStatus) return;
+
+    const requestId = event.params.requestId as string;
+    const title = String(after.title ?? "동네부탁");
+
+    try {
+      // open -> in_progress : 작성자에게 수락 알림
+      if (
+        beforeStatus === "open" &&
+        afterStatus === "in_progress" &&
+        typeof after.authorId === "string" &&
+        typeof after.acceptedBy === "string"
+      ) {
+        await notifyUserByUid(
+          after.authorId,
+          "동네부탁이 수락되었어요",
+          `‘${title}’ 요청이 수락되었습니다.`,
+          { type: "request_status_changed", requestId, status: afterStatus },
+          1,
+          "status"
+        );
+        return;
+      }
+
+      // in_progress -> open : 기존 수락자에게 다시 모집 알림
+      if (
+        beforeStatus === "in_progress" &&
+        afterStatus === "open" &&
+        typeof before.acceptedBy === "string"
+      ) {
+        await notifyUserByUid(
+          before.acceptedBy,
+          "동네부탁 상태가 변경되었어요",
+          `‘${title}’ 요청이 다시 모집 중으로 변경되었습니다.`,
+          { type: "request_status_changed", requestId, status: afterStatus },
+          1,
+          "status"
+        );
+      }
+    } catch (e) {
+      console.error("onNeighborhoodRequestUpdated notification failed:", e);
+    }
+  }
+);
+
 /**
  * 즐겨찾기 추가 시 해당 공간의 favoriteCount +1 (클라이언트 권한 무관)
  */
