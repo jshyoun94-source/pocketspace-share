@@ -20,6 +20,12 @@ export type Transaction = {
   completedAt?: Timestamp;
   ownerEvaluatedCustomer?: boolean;
   customerEvaluatedOwner?: boolean;
+  ownerEvaluationAvg?: number;
+  customerEvaluationAvg?: number;
+  ownerReviewText?: string;
+  customerReviewText?: string;
+  ownerReviewCreatedAt?: Timestamp;
+  customerReviewCreatedAt?: Timestamp;
   ownerEvaluation?: { schedule: number; manners: number };
   customerEvaluation?: { schedule: number; storageCondition: number; manners: number };
   disputed?: boolean;

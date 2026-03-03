@@ -4,7 +4,9 @@ import React, { useState } from "react";
 import {
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -83,60 +85,71 @@ export default function AppointmentRequestModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide">
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable style={styles.content} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.header}>
-            <Text style={styles.title}>보관요청하기</Text>
-            <Pressable onPress={onClose} hitSlop={12}>
-              <Ionicons name="close" size={24} color="#6B7280" />
-            </Pressable>
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={onClose} />
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        >
+          <View style={styles.content}>
+            <View style={styles.header}>
+              <Text style={styles.title}>보관요청하기</Text>
+              <Pressable onPress={onClose} hitSlop={12}>
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={styles.body}
+              contentContainerStyle={styles.bodyContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.label}>물건 사진 (선택)</Text>
+              <Pressable style={styles.imageBox} onPress={pickImage}>
+                {itemImageUri ? (
+                  <Image
+                    source={{ uri: itemImageUri }}
+                    style={styles.previewImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.imagePlaceholder}>
+                    <Ionicons name="add" size={32} color="#9CA3AF" />
+                    <Text style={styles.imagePlaceholderText}>사진 추가</Text>
+                  </View>
+                )}
+              </Pressable>
+
+              <Text style={[styles.label, { marginTop: 16 }]}>보관일정 (필수)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="예: 01/31 14:00 ~ 01/31 17:00"
+                placeholderTextColor="#9CA3AF"
+                value={storageSchedule}
+                onChangeText={setStorageSchedule}
+              />
+
+              <Text style={[styles.label, { marginTop: 16 }]}>보관물품 (필수)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="예: 캐리어, 박스 2개"
+                placeholderTextColor="#9CA3AF"
+                value={storageItem}
+                onChangeText={setStorageItem}
+              />
+            </ScrollView>
+
+            <View style={styles.footer}>
+              <Pressable style={styles.submitBtn} onPress={handleSubmit}>
+                <Text style={styles.submitBtnText}>
+                  {isReRequest ? "재요청하기" : "보관 요청 보내기"}
+                </Text>
+              </Pressable>
+            </View>
           </View>
-
-          <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
-            <Text style={styles.label}>물건 사진 (선택)</Text>
-            <Pressable style={styles.imageBox} onPress={pickImage}>
-              {itemImageUri ? (
-                <Image
-                  source={{ uri: itemImageUri }}
-                  style={styles.previewImage}
-                  resizeMode="cover"
-                />
-              ) : (
-                <View style={styles.imagePlaceholder}>
-                  <Ionicons name="add" size={32} color="#9CA3AF" />
-                  <Text style={styles.imagePlaceholderText}>사진 추가</Text>
-                </View>
-              )}
-            </Pressable>
-
-            <Text style={[styles.label, { marginTop: 16 }]}>보관일정 (필수)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="예: 01/31 14:00 ~ 01/31 17:00"
-              placeholderTextColor="#9CA3AF"
-              value={storageSchedule}
-              onChangeText={setStorageSchedule}
-            />
-
-            <Text style={[styles.label, { marginTop: 16 }]}>보관물품 (필수)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="예: 캐리어, 박스 2개"
-              placeholderTextColor="#9CA3AF"
-              value={storageItem}
-              onChangeText={setStorageItem}
-            />
-          </ScrollView>
-
-          <View style={styles.footer}>
-            <Pressable style={styles.submitBtn} onPress={handleSubmit}>
-              <Text style={styles.submitBtnText}>
-                {isReRequest ? "재요청하기" : "보관 요청 보내기"}
-              </Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Pressable>
+        </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -146,6 +159,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
   },
   content: {
     backgroundColor: "#fff",
@@ -170,6 +186,9 @@ const styles = StyleSheet.create({
   body: {
     padding: 20,
     maxHeight: 400,
+  },
+  bodyContent: {
+    paddingBottom: 8,
   },
   label: {
     fontSize: 14,

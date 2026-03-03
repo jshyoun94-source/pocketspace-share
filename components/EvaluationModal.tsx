@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import {
@@ -19,7 +20,7 @@ type EvalTarget = "owner" | "customer";
 type Props = {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (scores: Record<string, number>) => Promise<void>;
+  onSubmit: (payload: { scores: Record<string, number>; reviewText: string }) => Promise<void>;
   target: EvalTarget;
   targetName: string;
 };
@@ -33,6 +34,7 @@ export default function EvaluationModal({
 }: Props) {
   const items = target === "owner" ? OWNER_EVAL_ITEMS : CUSTOMER_EVAL_ITEMS;
   const [scores, setScores] = useState<Record<string, number>>({});
+  const [reviewText, setReviewText] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const handleStarPress = (key: string, value: number) => {
@@ -49,7 +51,8 @@ export default function EvaluationModal({
     if (!allSelected) return;
     setSubmitting(true);
     try {
-      await onSubmit(scores);
+      await onSubmit({ scores, reviewText: reviewText.trim() });
+      setReviewText("");
       onClose();
     } finally {
       setSubmitting(false);
@@ -89,6 +92,25 @@ export default function EvaluationModal({
                 </View>
               </View>
             ))}
+            <View style={styles.reviewBlock}>
+              <Text style={styles.itemLabel}>후기</Text>
+              <Text style={styles.itemDesc}>
+                상대방이 참고할 수 있도록 간단한 후기를 남겨주세요.
+              </Text>
+              <TextInput
+                style={styles.reviewInput}
+                placeholder={
+                  target === "owner"
+                    ? "예) 약속 시간을 잘 지켜주시고 응답이 빨랐어요."
+                    : "예) 맡긴 물건을 약속대로 찾아갔고 소통이 원활했어요."
+                }
+                value={reviewText}
+                onChangeText={setReviewText}
+                multiline
+                textAlignVertical="top"
+                maxLength={300}
+              />
+            </View>
           </ScrollView>
 
           <View style={styles.footer}>
@@ -141,6 +163,9 @@ const styles = StyleSheet.create({
   item: {
     marginBottom: 24,
   },
+  reviewBlock: {
+    marginBottom: 12,
+  },
   itemLabel: {
     fontSize: 16,
     fontWeight: "600",
@@ -158,6 +183,17 @@ const styles = StyleSheet.create({
   },
   starBtn: {
     padding: 4,
+  },
+  reviewInput: {
+    minHeight: 100,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: "#111827",
+    backgroundColor: "#fff",
   },
   footer: {
     paddingHorizontal: 20,

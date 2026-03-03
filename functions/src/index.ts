@@ -1026,6 +1026,17 @@ export const onNeighborhoodRequestUpdated = onDocumentUpdated(
 
     const requestId = event.params.requestId as string;
     const title = String(after.title ?? "동네부탁");
+    let chatIdForRequest: string | undefined;
+    try {
+      const chatSnap = await db
+        .collection("chats")
+        .where("requestId", "==", requestId)
+        .limit(1)
+        .get();
+      chatIdForRequest = chatSnap.docs[0]?.id;
+    } catch (e) {
+      console.warn("requestId 기반 chatId 조회 실패:", e);
+    }
 
     try {
       // open -> in_progress : 작성자에게 수락 알림
@@ -1039,7 +1050,12 @@ export const onNeighborhoodRequestUpdated = onDocumentUpdated(
           after.authorId,
           "동네부탁이 수락되었어요",
           `‘${title}’ 요청이 수락되었습니다.`,
-          { type: "request_status_changed", requestId, status: afterStatus },
+          {
+            type: "request_status_changed",
+            requestId,
+            status: afterStatus,
+            ...(chatIdForRequest ? { chatId: chatIdForRequest } : {}),
+          },
           1,
           "status"
         );
@@ -1056,13 +1072,70 @@ export const onNeighborhoodRequestUpdated = onDocumentUpdated(
           before.acceptedBy,
           "동네부탁 상태가 변경되었어요",
           `‘${title}’ 요청이 다시 모집 중으로 변경되었습니다.`,
-          { type: "request_status_changed", requestId, status: afterStatus },
+          {
+            type: "request_status_changed",
+            requestId,
+            status: afterStatus,
+            ...(chatIdForRequest ? { chatId: chatIdForRequest } : {}),
+          },
           1,
           "status"
         );
       }
     } catch (e) {
       console.error("onNeighborhoodRequestUpdated notification failed:", e);
+    }
+  }
+);
+
+/**
+ * 공간거래 상태 변경 시 거래 상대에게 상태 알림 발송
+ */
+export const onTransactionStatusUpdated = onDocumentUpdated(
+  {
+    document: "transactions/{transactionId}",
+    region: "asia-northeast3",
+  },
+  async (event) => {
+    const before = event.data?.before?.data() as any;
+    const after = event.data?.after?.data() as any;
+    if (!before || !after) return;
+
+    const beforeStatus = String(before.status ?? "");
+    const afterStatus = String(after.status ?? "");
+    if (!afterStatus || beforeStatus === afterStatus) return;
+
+    const chatId = typeof after.chatId === "string" ? after.chatId : "";
+    const spaceId = typeof after.spaceId === "string" ? after.spaceId : "";
+    const customerId = typeof after.customerId === "string" ? after.customerId : "";
+    if (!chatId || !spaceId || !customerId) return;
+
+    const statusTextMap: Record<string, string> = {
+      "약속중": "약속중",
+      "보관중": "보관중",
+      "보관종료": "보관종료",
+      "거절됨": "거절됨",
+    };
+    const statusLabel = statusTextMap[afterStatus] ?? afterStatus;
+    const spaceTitle = String(after.spaceTitle ?? "공간거래");
+
+    try {
+      await notifyUserByUid(
+        customerId,
+        "공간거래 상태가 변경되었어요",
+        `‘${spaceTitle}’ 거래가 ${statusLabel}(으)로 변경되었습니다.`,
+        {
+          type: "transaction_status_changed",
+          transactionId: event.params.transactionId as string,
+          chatId,
+          spaceId,
+          status: afterStatus,
+        },
+        1,
+        "status"
+      );
+    } catch (e) {
+      console.error("onTransactionStatusUpdated notification failed:", e);
     }
   }
 );

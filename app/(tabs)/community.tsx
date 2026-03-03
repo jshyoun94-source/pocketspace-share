@@ -477,7 +477,11 @@ export default function CommunityScreen() {
             renderItem={({ item }) => (
               <View style={styles.postCard}>
                 <View style={styles.postHeader}>
-                  <Text style={styles.authorName}>{item.authorName}</Text>
+                  <Pressable
+                    onPress={() => item.authorId && router.push(`/user/${item.authorId}` as any)}
+                  >
+                    <Text style={styles.authorName}>{item.authorName}</Text>
+                  </Pressable>
                   <Text style={styles.postTime}>
                     {item.createdAt?.toDate().toLocaleString("ko-KR", {
                       month: "short",
@@ -548,7 +552,7 @@ export default function CommunityScreen() {
           }}
           style={{
             position: "absolute",
-            bottom: Platform.OS === "ios" ? 22 : 18,
+            bottom: Platform.OS === "ios" ? 152 : 128,
             alignSelf: "center",
             backgroundColor: "#2477ff",
             borderRadius: 26,
@@ -664,7 +668,13 @@ export default function CommunityScreen() {
                     item.parentCommentId && styles.replyItem,
                   ]}
                 >
-                  <Text style={styles.commentAuthor}>{item.authorName}</Text>
+                  <Pressable
+                    onPress={() =>
+                      item.authorId && router.push(`/user/${item.authorId}` as any)
+                    }
+                  >
+                    <Text style={styles.commentAuthor}>{item.authorName}</Text>
+                  </Pressable>
                   <Text style={styles.commentContent}>{item.content}</Text>
                   {!item.parentCommentId && (
                     <Pressable
@@ -717,61 +727,6 @@ export default function CommunityScreen() {
             </KeyboardAvoidingView>
           </View>
         </Modal>
-
-        {/* 광고배너 (탭바를 덮도록) */}
-        <View
-          style={{
-            position: "absolute",
-            left: 12,
-            right: 12,
-            bottom: Platform.OS === "ios" ? 22 : 18,
-            zIndex: 1000,
-          }}
-        >
-          <View
-            style={{
-              backgroundColor: "#1E3A8A",
-              borderRadius: 12,
-              paddingVertical: 8,
-              paddingHorizontal: 11,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              shadowColor: "#000",
-              shadowOpacity: 0.1,
-              shadowRadius: 8,
-              elevation: 20,
-            }}
-          >
-            <View style={{ flex: 1, marginRight: 12 }}>
-              <Text
-                style={{
-                  color: "#fff",
-                  fontSize: 13,
-                  fontWeight: "700",
-                  marginBottom: 1,
-                }}
-              >
-                포켓스페이스로 편한 보관
-              </Text>
-              <Text style={{ color: "#E0E7FF", fontSize: 10 }}>
-                언제 어디서나 안전한 보관 공간
-              </Text>
-            </View>
-            <View
-              style={{
-                width: 38,
-                height: 38,
-                backgroundColor: "#3B82F6",
-                borderRadius: 8,
-                justifyContent: "center",
-                alignItems: "center",
-              }}
-            >
-              <Ionicons name="cube" size={22} color="#fff" />
-            </View>
-          </View>
-        </View>
       </View>
     </>
   );

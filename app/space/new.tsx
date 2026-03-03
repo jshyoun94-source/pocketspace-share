@@ -9,6 +9,7 @@ import { getStorage } from "firebase/storage";
 import { uploadBase64ToStorage } from "../../utils/uploadImageToStorage";
 import React, { useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
@@ -22,6 +23,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import "react-native-get-random-values";
 import { v4 as uuidv4 } from "uuid";
 
@@ -69,6 +71,7 @@ const PRICE_OPTIONS = [500, 1000, 2000] as const;
 
 export default function NewSpace() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   // 주소검색 입력란 표시 텍스트
   const [addressQuery, setAddressQuery] = useState("");
@@ -107,6 +110,7 @@ export default function NewSpace() {
     blockId: string | null;
     field: "start" | "end" | null;
   }>({ visible: false, blockId: null, field: null });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const openTimePicker = (blockId: string, field: "start" | "end") =>
     setTimePicker({ visible: true, blockId, field });
@@ -188,6 +192,8 @@ export default function NewSpace() {
   };
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
+
     if (!canSubmit) {
       Alert.alert("입력 확인", "주소/가격/요일-시간을 확인해 주세요.");
       return;
@@ -201,7 +207,8 @@ export default function NewSpace() {
       Alert.alert("오류", "주소 좌표가 없습니다.");
       return;
     }
-    
+
+    setIsSubmitting(true);
     try {
       const addressTitle = selectedAddress?.name || addressQuery.trim();
       
@@ -341,6 +348,8 @@ export default function NewSpace() {
     } catch (e: any) {
       console.error("공간 등록 오류:", e);
       Alert.alert("오류", `저장 중 문제가 발생했습니다.\n${e?.message ?? e}`);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -386,6 +395,10 @@ export default function NewSpace() {
       <Stack.Screen
         options={{
           title: "공간등록",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTitleStyle: { color: "#111827", fontWeight: "700" },
+          headerTintColor: "#111827",
+          statusBarStyle: "dark",
           headerBackTitle: "",
           headerLeft: () => (
             <Pressable
@@ -402,7 +415,8 @@ export default function NewSpace() {
         data={[{ key: "form" }]}
         keyExtractor={(i) => i.key}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: 24 }}
+        style={{ backgroundColor: "#fff" }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         renderItem={() => (
           <View style={styles.container}>
             {/* 부제목: 주소검색 */}
@@ -600,11 +614,11 @@ export default function NewSpace() {
             </View>
 
             <Pressable
-              style={[styles.submitBtn, !canSubmit && { opacity: 0.5 }]}
+              style={[styles.submitBtn, (!canSubmit || isSubmitting) && { opacity: 0.5 }]}
               onPress={handleSubmit}
-              disabled={!canSubmit}
+              disabled={!canSubmit || isSubmitting}
             >
-              <Text style={styles.submitText}>등록하기</Text>
+              <Text style={styles.submitText}>{isSubmitting ? "등록 중..." : "등록하기"}</Text>
             </Pressable>
 
             {/* 시간 선택 모달 */}
@@ -638,6 +652,14 @@ export default function NewSpace() {
           </View>
         )}
       />
+      {isSubmitting && (
+        <View style={styles.loadingOverlay} pointerEvents="auto">
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color="#111827" />
+            <Text style={styles.loadingText}>등록 중입니다...</Text>
+          </View>
+        </View>
+      )}
     </>
   );
 }
@@ -850,6 +872,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   submitText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255,255,255,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingCard: {
+    minWidth: 140,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.96)",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  loadingText: { fontSize: 14, color: "#374151", fontWeight: "600" },
 
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
   modalCard: { backgroundColor: "#fff", borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16 },

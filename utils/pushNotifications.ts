@@ -1,17 +1,40 @@
 import { arrayUnion, doc, serverTimestamp, setDoc } from "firebase/firestore";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 import { db } from "../firebase";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+type NotificationsModule = typeof import("expo-notifications");
+
+let notificationsModule: NotificationsModule | null = null;
+let notificationHandlerConfigured = false;
+
+function getNotificationsModule(): NotificationsModule | null {
+  if (notificationsModule) return notificationsModule;
+  try {
+    notificationsModule = require("expo-notifications") as NotificationsModule;
+    return notificationsModule;
+  } catch (e) {
+    console.warn("expo-notifications 모듈을 찾지 못했습니다.", e);
+    return null;
+  }
+}
+
+function ensureNotificationHandler(): NotificationsModule | null {
+  const Notifications = getNotificationsModule();
+  if (!Notifications) return null;
+  if (!notificationHandlerConfigured) {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      }),
+    });
+    notificationHandlerConfigured = true;
+  }
+  return Notifications;
+}
 
 function getExpoProjectId(): string | undefined {
   const fromExpoConfig = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
@@ -23,6 +46,8 @@ export async function registerPushTokenForUser(userId: string): Promise<void> {
   if (!Device.isDevice) {
     return;
   }
+  const Notifications = ensureNotificationHandler();
+  if (!Notifications) return;
 
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("default", {

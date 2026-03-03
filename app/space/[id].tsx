@@ -9,7 +9,23 @@ import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { auth, db } from '@/firebase';
-import { deleteDoc, doc, onSnapshot, collection, addDoc, query, where, getDocs, deleteDoc as deleteFirestoreDoc, getDoc, updateDoc, increment } from 'firebase/firestore';
+import {
+  deleteDoc,
+  doc,
+  onSnapshot,
+  collection,
+  addDoc,
+  query,
+  where,
+  getDocs,
+  deleteDoc as deleteFirestoreDoc,
+  getDoc,
+  updateDoc,
+  increment,
+  orderBy,
+  limit,
+  Timestamp,
+} from 'firebase/firestore';
 import MindSpaceBadge from '@/components/MindSpaceBadge';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -38,6 +54,15 @@ type NearbySpace = {
   coords: { lat: number; lng: number };
 };
 
+type UserReview = {
+  id: string;
+  targetRole?: "owner" | "customer";
+  reviewerNickname?: string;
+  ratingAvg?: number;
+  reviewText?: string;
+  createdAt?: Timestamp;
+};
+
 export default function SpaceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -56,6 +81,7 @@ export default function SpaceDetailScreen() {
   const [nearbySpaces, setNearbySpaces] = useState<NearbySpace[]>([]);
   const [ownerSpaces, setOwnerSpaces] = useState<NearbySpace[]>([]);
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [ownerReviews, setOwnerReviews] = useState<UserReview[]>([]);
 
   // 사용자 현재 위치 로드
   useEffect(() => {
@@ -275,6 +301,34 @@ export default function SpaceDetailScreen() {
     loadOwnerSpaces();
   }, [loadOwnerSpaces]);
 
+  // 공간대여자 리뷰 최신 5개
+  useEffect(() => {
+    if (!data?.ownerId) {
+      setOwnerReviews([]);
+      return;
+    }
+    const q = query(
+      collection(db, "userReviews"),
+      where("targetUserId", "==", data.ownerId),
+      orderBy("createdAt", "desc"),
+      limit(30)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list: UserReview[] = [];
+        snap.forEach((d) => list.push({ id: d.id, ...(d.data() as any) }));
+        setOwnerReviews(
+          list
+            .filter((r) => r.targetRole === "owner")
+            .slice(0, 5)
+        );
+      },
+      () => setOwnerReviews([])
+    );
+    return () => unsub();
+  }, [data?.ownerId]);
+
   const handleDelete = async () => {
     if (!id) return;
     try {
@@ -402,9 +456,15 @@ export default function SpaceDetailScreen() {
                       <Ionicons name="person" size={20} color="#9CA3AF" />
                     </View>
                   )}
-                  <Text style={styles.ownerNickname}>
-                    {ownerProfile?.nickname || "공간등록자"}
-                  </Text>
+                  <Pressable
+                    onPress={() =>
+                      data?.ownerId && router.push(`/user/${data.ownerId}` as any)
+                    }
+                  >
+                    <Text style={styles.ownerNickname}>
+                      {ownerProfile?.nickname || "공간등록자"}
+                    </Text>
+                  </Pressable>
                 </View>
                 {ownerMindSpace != null && (
                   <View style={styles.mindSpaceBlock}>
@@ -611,6 +671,50 @@ export default function SpaceDetailScreen() {
                   </ScrollView>
                 </View>
               )}
+
+              <View style={styles.section}>
+                <View style={styles.reviewHeaderRow}>
+                  <Text style={styles.nearbyTitle}>
+                    {ownerProfile?.nickname || "공간대여자"}님의 공간 이용 후기
+                  </Text>
+                  <Pressable
+                    onPress={() =>
+                      data?.ownerId &&
+                      router.push(
+                        {
+                          pathname: `/user/${data.ownerId}/reviews`,
+                          params: { role: "owner" },
+                        } as any
+                      )
+                    }
+                  >
+                    <Text style={styles.moreReviewText}>후기 더보기</Text>
+                  </Pressable>
+                </View>
+                {ownerReviews.length === 0 ? (
+                  <Text style={styles.emptyReviewText}>아직 등록된 후기가 없습니다.</Text>
+                ) : (
+                  ownerReviews.map((rv) => (
+                    <View key={rv.id} style={styles.reviewCard}>
+                      <View style={styles.reviewMetaRow}>
+                        <View style={styles.reviewStarsRow}>
+                          <Ionicons name="star" size={12} color="#FBBF24" />
+                          <Text style={styles.reviewRatingText}>
+                            {(rv.ratingAvg ?? 0).toFixed(1)}
+                          </Text>
+                        </View>
+                        <Text style={styles.reviewMetaText}>
+                          {rv.reviewerNickname || "사용자"} ·{" "}
+                          {rv.createdAt?.toDate?.().toLocaleDateString("ko-KR") ?? "-"}
+                        </Text>
+                      </View>
+                      <Text style={styles.reviewBodyText}>
+                        {rv.reviewText || "후기 내용이 없습니다."}
+                      </Text>
+                    </View>
+                  ))
+                )}
+              </View>
             </View>
           </View>
         )}
@@ -810,6 +914,53 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     marginTop: 2,
+  },
+  reviewHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  moreReviewText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#2477ff",
+  },
+  emptyReviewText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+  },
+  reviewCard: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+    backgroundColor: "#fff",
+  },
+  reviewMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  reviewStarsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  reviewRatingText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  reviewMetaText: {
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  reviewBodyText: {
+    fontSize: 14,
+    color: "#374151",
+    lineHeight: 20,
   },
   descText: { fontSize: 15, color: '#1f2937', lineHeight: 22 },
   scheduleRow: {

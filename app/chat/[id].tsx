@@ -302,6 +302,12 @@ export default function ChatByIdScreen() {
         ? chatRoom.customerName
         : chatRoom.ownerName
       : "";
+  const otherUid =
+    chatRoom && auth.currentUser
+      ? auth.currentUser.uid === chatRoom.ownerId
+        ? chatRoom.customerId
+        : chatRoom.ownerId
+      : "";
 
   if (loading || !chatRoom) {
     return (
@@ -330,9 +336,13 @@ export default function ChatByIdScreen() {
         options={{
           headerTitle: () => (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Text style={{ fontSize: 18, fontWeight: "700", color: "#111827" }} numberOfLines={1}>
-                {otherName || chatRoom.spaceTitle}
-              </Text>
+              <Pressable
+                onPress={() => otherUid && router.push(`/user/${otherUid}` as any)}
+              >
+                <Text style={{ fontSize: 18, fontWeight: "700", color: "#111827" }} numberOfLines={1}>
+                  {otherName || chatRoom.spaceTitle}
+                </Text>
+              </Pressable>
               <MindSpaceBadge mindSpace={otherUserMindSpace} size="small" />
             </View>
           ),

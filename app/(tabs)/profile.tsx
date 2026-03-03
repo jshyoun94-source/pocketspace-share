@@ -52,6 +52,7 @@ type Transaction = {
   spaceTitle: string;
   spaceId: string;
   chatId: string;
+  partnerName: string;
   amount: number;
   date: Timestamp | null;
   status: "보관종료";
@@ -68,6 +69,8 @@ export default function ProfileScreen() {
   const [newNickname, setNewNickname] = useState("");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [activeTab, setActiveTab] = useState<"profile" | "transactions" | "settings">("profile");
+  const [sellExpanded, setSellExpanded] = useState(true);
+  const [buyExpanded, setBuyExpanded] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   useEffect(() => {
@@ -84,6 +87,12 @@ export default function ProfileScreen() {
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (activeTab !== "transactions") return;
+    loadTransactions();
+  }, [activeTab, currentUser?.uid]);
 
   const loadProfile = async () => {
     if (!currentUser) return;
@@ -137,12 +146,15 @@ export default function ProfileScreen() {
         if (seen.has(docSnap.id)) return;
         seen.add(docSnap.id);
         const ownerId = data.ownerId as string;
+        const isSell = ownerId === uid;
         transactionsList.push({
           id: docSnap.id,
-          type: ownerId === uid ? "sell" : "buy",
+          type: isSell ? "sell" : "buy",
           spaceTitle: (data.spaceTitle as string) || "공간",
           spaceId: (data.spaceId as string) || "",
           chatId: (data.chatId as string) || "",
+          partnerName:
+            ((isSell ? data.customerName : data.ownerName) as string) || "상대방",
           amount: 0,
           date: (data.completedAt as Timestamp) ?? null,
           status: "보관종료",
@@ -524,17 +536,47 @@ export default function ProfileScreen() {
                 <Text style={styles.menuItemText}>즐겨찾는 장소</Text>
                 <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
               </Pressable>
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => router.push("/my-reviews/owner")}
+              >
+                <Text style={styles.menuItemText}>내 공간 후기</Text>
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </Pressable>
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => router.push("/my-reviews/customer")}
+              >
+                <Text style={styles.menuItemText}>내 이용 후기</Text>
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </Pressable>
             </View>
           )}
 
           {activeTab === "transactions" && (
             <View style={styles.transactionsSection}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>판매 완료</Text>
-              </View>
-              {transactions
-                .filter((t) => t.type === "sell")
-                .map((transaction) => (
+              <Pressable
+                style={styles.sectionHeader}
+                onPress={() => setSellExpanded((v) => !v)}
+              >
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionTitle}>판매 완료</Text>
+                  <View style={styles.sectionHeaderRight}>
+                    <Text style={styles.sectionCount}>
+                      {transactions.filter((t) => t.type === "sell").length}
+                    </Text>
+                    <Ionicons
+                      name={sellExpanded ? "chevron-up" : "chevron-down"}
+                      size={18}
+                      color="#6B7280"
+                    />
+                  </View>
+                </View>
+              </Pressable>
+              {sellExpanded &&
+                transactions
+                  .filter((t) => t.type === "sell")
+                  .map((transaction) => (
                   <Pressable
                     key={transaction.id}
                     style={styles.transactionItem}
@@ -546,6 +588,9 @@ export default function ProfileScreen() {
                     <View style={styles.transactionInfo}>
                       <Text style={styles.transactionTitle}>
                         {transaction.spaceTitle}
+                      </Text>
+                      <Text style={styles.transactionPartner}>
+                        거래 상대: {transaction.partnerName}
                       </Text>
                       <Text style={styles.transactionDate}>
                         {transaction.date?.toDate?.().toLocaleDateString("ko-KR") ??
@@ -554,14 +599,30 @@ export default function ProfileScreen() {
                     </View>
                     <Text style={styles.transactionAmount}>보관종료</Text>
                   </Pressable>
-                ))}
+                  ))}
 
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>구매 완료</Text>
-              </View>
-              {transactions
-                .filter((t) => t.type === "buy")
-                .map((transaction) => (
+              <Pressable
+                style={styles.sectionHeader}
+                onPress={() => setBuyExpanded((v) => !v)}
+              >
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionTitle}>구매 완료</Text>
+                  <View style={styles.sectionHeaderRight}>
+                    <Text style={styles.sectionCount}>
+                      {transactions.filter((t) => t.type === "buy").length}
+                    </Text>
+                    <Ionicons
+                      name={buyExpanded ? "chevron-up" : "chevron-down"}
+                      size={18}
+                      color="#6B7280"
+                    />
+                  </View>
+                </View>
+              </Pressable>
+              {buyExpanded &&
+                transactions
+                  .filter((t) => t.type === "buy")
+                  .map((transaction) => (
                   <Pressable
                     key={transaction.id}
                     style={styles.transactionItem}
@@ -573,6 +634,9 @@ export default function ProfileScreen() {
                     <View style={styles.transactionInfo}>
                       <Text style={styles.transactionTitle}>
                         {transaction.spaceTitle}
+                      </Text>
+                      <Text style={styles.transactionPartner}>
+                        거래 상대: {transaction.partnerName}
                       </Text>
                       <Text style={styles.transactionDate}>
                         {transaction.date?.toDate?.().toLocaleDateString("ko-KR") ??
@@ -588,7 +652,7 @@ export default function ProfileScreen() {
                       보관종료
                     </Text>
                   </Pressable>
-                ))}
+                  ))}
 
               {transactions.length === 0 && (
                 <View style={styles.emptyTransactions}>
@@ -887,6 +951,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
   },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  sectionHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  sectionCount: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontWeight: "600",
+  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: "400",
@@ -912,6 +991,11 @@ const styles = StyleSheet.create({
   transactionDate: {
     fontSize: 14,
     color: "#6B7280",
+  },
+  transactionPartner: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginBottom: 2,
   },
   transactionAmount: {
     fontSize: 18,

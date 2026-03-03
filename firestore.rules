@@ -192,6 +192,19 @@ service cloud.firestore {
         && resource.data.authorId == request.auth.uid;
     }
 
+    // -------------------------
+    // userReviews (리뷰)
+    // -------------------------
+    match /userReviews/{reviewId} {
+      // 공간 상세/외부 프로필 노출용 공개 읽기
+      allow read: if true;
+      // 평가를 작성한 본인만 생성/수정/삭제 가능
+      allow create, update: if signedIn()
+        && request.resource.data.reviewerUserId == request.auth.uid;
+      allow delete: if signedIn()
+        && resource.data.reviewerUserId == request.auth.uid;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

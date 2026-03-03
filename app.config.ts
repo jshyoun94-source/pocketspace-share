@@ -31,7 +31,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
     name: "PocketSpace",
     slug: "pocketspace",
-    version: "1.0.1",
+    version: "1.0.2",
 
     orientation: "portrait",
     userInterfaceStyle: "automatic",
@@ -39,7 +39,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
     icon: "./assets/images/icon.png",
     splash: {
-      image: "./assets/images/splash-icon.png",
+      image: "./assets/images/icon.png",
       resizeMode: "contain",
       backgroundColor: "#ffffff",
     },
@@ -54,6 +54,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       bundleIdentifier: "com.jshyoun94.pocketspace",
       infoPlist: {
         UIBackgroundModes: ["remote-notification"],
+        UIViewControllerBasedStatusBarAppearance: false,
         NSLocationWhenInUseUsageDescription:
           "지도를 표시하고 내 주변 공간을 찾기 위해 위치 접근 권한이 필요합니다.",
         NSPhotoLibraryUsageDescription:

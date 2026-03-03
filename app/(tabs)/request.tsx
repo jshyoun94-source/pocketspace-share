@@ -583,7 +583,13 @@ export default function RequestScreen() {
               <View style={styles.requestCard}>
                 <View style={styles.requestHeader}>
                   <View style={styles.requestHeaderLeft}>
-                    <Text style={styles.authorName}>{item.authorName}</Text>
+                    <Pressable
+                      onPress={() =>
+                        item.authorId && router.push(`/user/${item.authorId}` as any)
+                      }
+                    >
+                      <Text style={styles.authorName}>{item.authorName}</Text>
+                    </Pressable>
                     <View
                       style={[
                         styles.statusBadge,
@@ -676,11 +682,11 @@ export default function RequestScreen() {
         <View
           style={{
             position: "absolute",
-            bottom: Platform.OS === "ios" ? 22 : 18,
+            bottom: Platform.OS === "ios" ? 152 : 128,
             left: 0,
             right: 0,
             flexDirection: "row",
-            alignItems: "center",
+            alignItems: "flex-end",
             justifyContent: "center",
             zIndex: 10,
           }}
@@ -729,6 +735,7 @@ export default function RequestScreen() {
               backgroundColor: "#fff",
               width: 52,
               height: 52,
+              marginBottom: -4,
               borderRadius: 26,
               justifyContent: "center",
               alignItems: "center",
@@ -844,61 +851,6 @@ export default function RequestScreen() {
             </ScrollView>
           </KeyboardAvoidingView>
         </Modal>
-
-        {/* 광고배너 (탭바를 덮도록) */}
-        <View
-          style={{
-            position: "absolute",
-            left: 12,
-            right: 12,
-            bottom: Platform.OS === "ios" ? 22 : 18,
-            zIndex: 1000,
-          }}
-        >
-          <View
-            style={{
-              backgroundColor: "#1E3A8A",
-              borderRadius: 12,
-              paddingVertical: 8,
-              paddingHorizontal: 11,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              shadowColor: "#000",
-              shadowOpacity: 0.1,
-              shadowRadius: 8,
-              elevation: 20,
-            }}
-          >
-            <View style={{ flex: 1, marginRight: 12 }}>
-              <Text
-                style={{
-                  color: "#fff",
-                  fontSize: 13,
-                  fontWeight: "700",
-                  marginBottom: 1,
-                }}
-              >
-                포켓스페이스로 편한 보관
-              </Text>
-              <Text style={{ color: "#E0E7FF", fontSize: 10 }}>
-                언제 어디서나 안전한 보관 공간
-              </Text>
-            </View>
-            <View
-              style={{
-                width: 38,
-                height: 38,
-                backgroundColor: "#3B82F6",
-                borderRadius: 8,
-                justifyContent: "center",
-                alignItems: "center",
-              }}
-            >
-              <Ionicons name="cube" size={22} color="#fff" />
-            </View>
-          </View>
-        </View>
       </View>
     </>
   );

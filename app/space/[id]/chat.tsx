@@ -836,15 +836,36 @@ export default function ChatScreen() {
     setEvalModalVisible(true);
   };
 
-  const handleEvaluateSubmit = async (scores: Record<string, number>) => {
+  const handleEvaluateSubmit = async (payload: {
+    scores: Record<string, number>;
+    reviewText: string;
+  }) => {
     if (!transaction || !auth.currentUser) return;
     const txRef = doc(db, "transactions", transaction.id);
+    const scores = payload.scores;
+    const reviewText = payload.reviewText.trim();
+    const scoreValues = Object.values(scores).filter(
+      (v): v is number => typeof v === "number"
+    );
+    const ratingAvg =
+      scoreValues.length > 0
+        ? Math.round(
+            (scoreValues.reduce((sum, v) => sum + v, 0) / scoreValues.length) * 10
+          ) / 10
+        : 0;
+    const reviewerName =
+      auth.currentUser.uid === transaction.ownerId
+        ? transaction.ownerName ?? "사용자"
+        : transaction.customerName ?? "사용자";
 
     try {
       if (evalTarget === "owner") {
         await updateDoc(txRef, {
           status: transaction.status,
           customerEvaluatedOwner: true,
+          ownerEvaluationAvg: ratingAvg,
+          ownerReviewText: reviewText,
+          ownerReviewCreatedAt: serverTimestamp(),
           customerEvaluation: {
             schedule: scores.schedule,
             storageCondition: scores.storageCondition,
@@ -852,16 +873,55 @@ export default function ChatScreen() {
           },
           updatedAt: serverTimestamp(),
         });
+        await setDoc(
+          doc(db, "userReviews", `${transaction.id}_owner`),
+          {
+            transactionId: transaction.id,
+            spaceId: transaction.spaceId,
+            spaceTitle: transaction.spaceTitle ?? "",
+            chatId: transaction.chatId,
+            targetUserId: transaction.ownerId,
+            targetRole: "owner",
+            reviewerUserId: transaction.customerId,
+            reviewerNickname: reviewerName,
+            ratingAvg,
+            reviewText,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
       } else {
         await updateDoc(txRef, {
           status: transaction.status,
           ownerEvaluatedCustomer: true,
+          customerEvaluationAvg: ratingAvg,
+          customerReviewText: reviewText,
+          customerReviewCreatedAt: serverTimestamp(),
           ownerEvaluation: {
             schedule: scores.schedule,
             manners: scores.manners,
           },
           updatedAt: serverTimestamp(),
         });
+        await setDoc(
+          doc(db, "userReviews", `${transaction.id}_customer`),
+          {
+            transactionId: transaction.id,
+            spaceId: transaction.spaceId,
+            spaceTitle: transaction.spaceTitle ?? "",
+            chatId: transaction.chatId,
+            targetUserId: transaction.customerId,
+            targetRole: "customer",
+            reviewerUserId: transaction.ownerId,
+            reviewerNickname: reviewerName,
+            ratingAvg,
+            reviewText,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
       }
 
       setEvalModalVisible(false);
@@ -1040,9 +1100,11 @@ export default function ChatScreen() {
         options={{
           headerTitle: () => (
             <View style={styles.headerTitleRow}>
-              <Text style={styles.headerTitleText} numberOfLines={1}>
-                {otherUser.name}
-              </Text>
+              <Pressable onPress={() => router.push(`/user/${otherUser.id}` as any)}>
+                <Text style={styles.headerTitleText} numberOfLines={1}>
+                  {otherUser.name}
+                </Text>
+              </Pressable>
               <MindSpaceBadge mindSpace={otherUserMindSpace} size="small" />
             </View>
           ),
@@ -1230,19 +1292,21 @@ export default function ChatScreen() {
         {transaction?.status === "약속중" || transaction?.status === "보관중" ? (
           <View style={styles.actionButtons}>
             <View style={styles.scheduleBlock}>
-              <Text style={styles.scheduleLabel}>보관일정</Text>
-              <Text style={styles.scheduleValue} numberOfLines={2}>
-                {agreedScheduleDisplay}
-              </Text>
+              <View style={styles.scheduleInlineRow}>
+                <Text style={styles.scheduleLabel}>보관일정:</Text>
+                <Text style={styles.scheduleValue} numberOfLines={2}>
+                  {agreedScheduleDisplay}
+                </Text>
+              </View>
               <Pressable
-                style={[styles.actionButton, styles.actionButtonSingle, { marginTop: 8 }]}
+                style={styles.scheduleChangeBtn}
                 onPress={() => {
                   setScheduleChangeText(agreedScheduleDisplay);
                   setScheduleChangeModalVisible(true);
                 }}
               >
-                <Ionicons name="calendar-outline" size={20} color="#111827" />
-                <Text style={styles.actionButtonText}>일정변경하기</Text>
+                <Ionicons name="calendar-outline" size={18} color="#fff" />
+                <Text style={styles.scheduleChangeBtnText}>보관일정 변경</Text>
               </Pressable>
             </View>
           </View>
@@ -1275,35 +1339,42 @@ export default function ChatScreen() {
           animationType="fade"
           onRequestClose={() => setScheduleChangeModalVisible(false)}
         >
-          <Pressable
-            style={styles.modalOverlay}
-            onPress={() => setScheduleChangeModalVisible(false)}
-          >
-            <View style={styles.scheduleChangeModalContent} onStartShouldSetResponder={() => true}>
-              <Text style={styles.scheduleChangeModalTitle}>보관일정 변경</Text>
-              <TextInput
-                style={styles.scheduleChangeInput}
-                placeholder="변경할 보관일정을 입력하세요"
-                value={scheduleChangeText}
-                onChangeText={setScheduleChangeText}
-                multiline
-              />
-              <View style={styles.scheduleChangeModalButtons}>
-                <Pressable
-                  style={[styles.scheduleChangeModalBtn, styles.scheduleChangeModalBtnCancel]}
-                  onPress={() => setScheduleChangeModalVisible(false)}
-                >
-                  <Text style={styles.scheduleChangeModalBtnTextCancel}>취소</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.scheduleChangeModalBtn, styles.scheduleChangeModalBtnSubmit]}
-                  onPress={handleScheduleChangeSubmit}
-                >
-                  <Text style={styles.scheduleChangeModalBtnTextSubmit}>변경</Text>
-                </Pressable>
+          <View style={styles.modalOverlay}>
+            <Pressable
+              style={styles.modalBackdrop}
+              onPress={() => setScheduleChangeModalVisible(false)}
+            />
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+              style={styles.scheduleChangeKeyboardWrap}
+            >
+              <View style={styles.scheduleChangeModalContent}>
+                <Text style={styles.scheduleChangeModalTitle}>보관일정 변경</Text>
+                <TextInput
+                  style={styles.scheduleChangeInput}
+                  placeholder="변경할 보관일정(날짜/시간)을 입력하세요"
+                  value={scheduleChangeText}
+                  onChangeText={setScheduleChangeText}
+                  multiline
+                />
+                <View style={styles.scheduleChangeModalButtons}>
+                  <Pressable
+                    style={[styles.scheduleChangeModalBtn, styles.scheduleChangeModalBtnCancel]}
+                    onPress={() => setScheduleChangeModalVisible(false)}
+                  >
+                    <Text style={styles.scheduleChangeModalBtnTextCancel}>취소</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.scheduleChangeModalBtn, styles.scheduleChangeModalBtnSubmit]}
+                    onPress={handleScheduleChangeSubmit}
+                  >
+                    <Text style={styles.scheduleChangeModalBtnTextSubmit}>변경</Text>
+                  </Pressable>
+                </View>
               </View>
-            </View>
-          </Pressable>
+            </KeyboardAvoidingView>
+          </View>
         </Modal>
 
         {/* 메시지 리스트 */}
@@ -1888,20 +1959,41 @@ const styles = StyleSheet.create({
   actionButtonSingle: {
     flex: 1,
   },
+  scheduleChangeBtn: {
+    marginTop: 10,
+    width: "100%",
+    minHeight: 42,
+    borderRadius: 10,
+    backgroundColor: "#2477ff",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  scheduleChangeBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#fff",
+  },
   scheduleBlock: {
     width: "100%",
     paddingVertical: 4,
   },
+  scheduleInlineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
   scheduleLabel: {
     fontSize: 12,
     color: "#6B7280",
-    marginBottom: 4,
     fontWeight: "600",
   },
   scheduleValue: {
-    fontSize: 14,
-    color: "#111827",
-    lineHeight: 20,
+    flex: 1,
+    fontSize: 12,
+    color: "#6B7280",
+    fontWeight: "600",
   },
   scheduleInfoBlock: {
     width: "100%",
@@ -2253,6 +2345,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  scheduleChangeKeyboardWrap: {
+    width: "100%",
+    paddingBottom: 16,
   },
   menuContainer: {
     backgroundColor: "#fff",
